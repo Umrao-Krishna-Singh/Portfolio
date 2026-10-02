@@ -1,0 +1,26 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "playwright": {
+        "type": "local",
+        "command": ["npx", "-y", "@playwright/mcp@latest"],
+        "disabled": true
+      },
+      "chrome-devtools": {
+        "type": "local",
+        "command": ["npx", "-y", "chrome-devtools-mcp@latest"],
+        "disabled": true
+      },
+      "blender": {
+        "type": "local",
+        "command": ["uvx", "mcp-for-blender"],
+        "environment": {
+          "BLENDER_MCP_SAFE_MODE": "1",
+          "DISABLE_TELEMETRY": "true"
+        },
+        "disabled": true
+      }
+    }
+  }
+}
