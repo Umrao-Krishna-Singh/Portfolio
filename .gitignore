@@ -48,6 +48,9 @@ Thumbs.db
 .cache/
 *.tmp
 *.temp
+.tmp/
 
 
 .vscode
+.playwright-mcp
+.zcode
