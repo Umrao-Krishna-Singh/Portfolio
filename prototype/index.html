@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="darkreader-lock">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23F5ECD7'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23FF9A2A' stroke-width='3'/%3E%3C/svg%3E">
+<title>Umrao Krishna Singh — Scribe of Interactive Tapestries</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Fondamento&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=14">
+</head>
+<body>
+
+<!-- Graded 2D desk wood + candlelight wash (ADR-0008): the DOM page wears
+     the same warm grade as the 3D scene, so the handoff keeps the look. -->
+<div id="deskwood" aria-hidden="true"></div>
+
+<!-- Loader: no gate, auto-dissolves <3s (ADR-0002) -->
+<div id="loader" role="status" aria-label="Loading">
+  <div class="loader-inner">
+    <div class="loader-sigil"></div>
+    <p>Unrolling the tapestry&hellip;</p>
+  </div>
+</div>
+
+<!-- Desk zone, top (ADR-0012): free-scroll band owning the camera valley.
+     Page top = wide desk; its end = read framing where the DOM hero waits.
+     Band ink art (user): a quill at rest, emerging as the 3D layer fades. -->
+<div class="desk-zone" id="zone-top" aria-hidden="true">
+  <svg class="band-art band-art-top" viewBox="0 0 900 260" fill="none">
+    <path d="M450 30 C 472 92, 468 152, 442 198 C 437 207, 427 207, 423 199 C 415 186, 428 128, 450 30 Z" stroke-width="2.5"/>
+    <path d="M447 62 C 461 98, 459 142, 445 178" stroke-width="1.5"/>
+    <path d="M436 148 C 428 132, 430 108, 442 92" stroke-width="1.5"/>
+    <line x1="441" y1="200" x2="436" y2="226" stroke-width="2.5"/>
+    <path d="M436 226 l-6 13 9 -4 7 4 -6 -13" stroke-width="1.5"/>
+    <path d="M296 190 C 358 174, 396 184, 423 199" stroke-width="2"/>
+    <path d="M604 190 C 542 174, 504 184, 477 199" stroke-width="2"/>
+    <path d="M128 206 C 208 190, 258 196, 296 190" stroke-width="1.5"/>
+    <path d="M772 206 C 692 190, 642 196, 604 190" stroke-width="1.5"/>
+    <path d="M96 206 l9 -9 9 9 -9 9 z" stroke-width="1.5"/>
+    <path d="M786 206 l9 -9 9 9 -9 9 z" stroke-width="1.5"/>
+    <circle cx="470" cy="230" r="3" stroke-width="1.5"/>
+    <circle cx="484" cy="221" r="2" stroke-width="1.5"/>
+  </svg>
+  <p class="zone-cue" id="zone-cue"><span class="zone-cue-inner">pull &darr;</span></p>
+</div>
+
+<div class="desk">
+  <div class="candle left" aria-hidden="true">
+    <svg viewBox="0 0 120 240" fill="none">
+      <defs>
+        <radialGradient id="cglow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#FFB347" stop-opacity="0.55"/>
+          <stop offset="60%" stop-color="#FF9A2A" stop-opacity="0.18"/>
+          <stop offset="100%" stop-color="#FF9A2A" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <circle cx="60" cy="52" r="48" fill="url(#cglow)" stroke="none"/>
+      <ellipse cx="60" cy="214" rx="40" ry="10" stroke="#2A1A0E" stroke-width="3"/>
+      <path d="M44 122 h32 v82 a6 6 0 0 1 -6 6 h-20 a6 6 0 0 1 -6 -6 z" fill="#F5ECD7" stroke="#2A1A0E" stroke-width="3"/>
+      <path d="M44 122 q8 -10 16 -2 q8 -12 16 0 l0 8 h-32 z" fill="#F5ECD7" stroke="#2A1A0E" stroke-width="2"/>
+      <path d="M84 124 q7 2 6 11 q-1 8 -6 8 q-4 -1 -4 -8 z" fill="#F5ECD7" stroke="#2A1A0E" stroke-width="2"/>
+      <line x1="60" y1="112" x2="60" y2="100" stroke="#2A1A0E" stroke-width="3" stroke-linecap="round"/>
+      <g class="flame">
+        <ellipse cx="60" cy="80" rx="12" ry="21" fill="#FF9A2A" stroke="none"/>
+        <ellipse cx="60" cy="87" rx="6" ry="11" fill="#FFB347" stroke="none"/>
+      </g>
+    </svg>
+  </div>
+  <div class="candle right" aria-hidden="true">
+    <svg viewBox="0 0 120 240" fill="none">
+      <circle cx="60" cy="52" r="48" fill="url(#cglow)" stroke="none"/>
+      <ellipse cx="60" cy="214" rx="40" ry="10" stroke="#2A1A0E" stroke-width="3"/>
+      <path d="M44 122 h32 v82 a6 6 0 0 1 -6 6 h-20 a6 6 0 0 1 -6 -6 z" fill="#F5ECD7" stroke="#2A1A0E" stroke-width="3"/>
+      <path d="M44 122 q8 -10 16 -2 q8 -12 16 0 l0 8 h-32 z" fill="#F5ECD7" stroke="#2A1A0E" stroke-width="2"/>
+      <path d="M84 124 q7 2 6 11 q-1 8 -6 8 q-4 -1 -4 -8 z" fill="#F5ECD7" stroke="#2A1A0E" stroke-width="2"/>
+      <line x1="60" y1="112" x2="60" y2="100" stroke="#2A1A0E" stroke-width="3" stroke-linecap="round"/>
+      <g class="flame">
+        <ellipse cx="60" cy="80" rx="12" ry="21" fill="#FF9A2A" stroke="none"/>
+        <ellipse cx="60" cy="87" rx="6" ry="11" fill="#FFB347" stroke="none"/>
+      </g>
+    </svg>
+  </div>
+  <main class="column">
+
+    <!-- Sigil cap: the sheet's lead-in. The hero must open mid-desk, not
+         at the top edge (user) — mirrored in the 3D bake via the "cap"
+         block in parchment.js. Draws on with the same reveal policy. -->
+    <div class="sheet-cap" aria-hidden="true">
+      <svg class="cap-sigil draw-reveal" viewBox="0 0 260 120" fill="none">
+        <circle cx="130" cy="60" r="44" pathLength="1"/>
+        <circle cx="130" cy="60" r="37" pathLength="1"/>
+        <text x="130" y="64" text-anchor="middle" dominant-baseline="middle">U</text>
+        <path d="M78 60 H26" pathLength="1"/>
+        <path d="M182 60 H234" pathLength="1"/>
+        <path d="M14 60 l7 -7 7 7 -7 7 z" pathLength="1"/>
+        <path d="M232 60 l7 -7 7 7 -7 7 z" pathLength="1"/>
+      </svg>
+    </div>
+
+    <!-- PULL I — HERO -->
+    <section class="pull" id="hero" data-pull="I">
+      <div class="hero-grid">
+        <figure class="hero-panel ink-reveal">
+          <img src="../.tmp/pen-runs/assets/hero-chalk.jpg" alt="Placeholder chalk-sketch portrait">
+        </figure>
+        <figure class="hero-ring ink-reveal">
+          <img src="../.tmp/pen-runs/assets/hero-chalk.jpg" alt="Placeholder chalk-sketch portrait">
+        </figure>
+        <div class="hero-text">
+          <p class="eyebrow ember-reveal">Placeholder &middot; hero</p>
+          <h1 class="name ember-reveal">Umrao Krishna Singh</h1>
+          <p class="hand-title ember-reveal">Scribe of interactive tapestries</p>
+          <p class="hook ember-reveal">Placeholder hook line one.<br>Placeholder hook line two.</p>
+          <div class="cta-row ember-reveal">
+            <a class="cta" href="#quest-1">View quests</a>
+            <a class="cta ghost" href="#contact">Send raven</a>
+          </div>
+        </div>
+      </div>
+      <p class="scroll-cue"><span class="scroll-cue-inner">pull &darr;</span></p>
+      <footer class="pull-footer"><span>I of IV</span></footer>
+    </section>
+
+    <div class="divider" aria-hidden="true"><span class="diamond"></span></div>
+
+    <!-- PULL II+ — QUESTS (rendered from QUESTS in app.js; add a quest = add an entry) -->
+    <div id="quests"></div>
+
+    <!-- PULL IV — ABOUT + CONTACT -->
+    <section class="pull" id="about-contact" data-pull="IV">
+      <div class="about-grid">
+        <article class="bio" id="about">
+          <p class="eyebrow ember-reveal">About &middot; placeholder</p>
+          <h2 class="quest-title ember-reveal">The scribe</h2>
+          <p class="ember-reveal">Placeholder bio paragraph one.</p>
+          <p class="ember-reveal">Placeholder bio paragraph two.</p>
+          <ul class="ways ember-reveal">
+            <li><strong>Way one:</strong> placeholder.</li>
+            <li><strong>Way two:</strong> placeholder.</li>
+            <li><strong>Way three:</strong> placeholder.</li>
+          </ul>
+        </article>
+        <article class="contact" id="contact">
+          <p class="eyebrow ember-reveal">Contact &middot; placeholder</p>
+          <h2 class="quest-title ember-reveal">Send a raven</h2>
+          <form id="raven-form">
+            <label>Your email
+              <input type="email" name="email" required placeholder="you@example.com" autocomplete="email">
+            </label>
+            <label>Message
+              <textarea name="message" required rows="5" placeholder="Placeholder message&hellip;"></textarea>
+            </label>
+            <button type="submit" class="seal" aria-label="Press to send">
+              <span class="seal-ring"></span>
+              <span class="seal-label">press to send</span>
+            </button>
+            <p class="form-note" id="form-note" hidden>Sealed &#10003; (prototype &mdash; no backend yet, see #8)</p>
+          </form>
+        </article>
+      </div>
+      <footer class="pull-footer"><span>IV of IV</span></footer>
+    </section>
+
+    <div class="end-art" aria-hidden="true">
+      <svg viewBox="0 0 600 70" fill="none" stroke="currentColor" stroke-linecap="round">
+        <line x1="20" y1="34" x2="238" y2="34" stroke-width="2"/>
+        <line x1="44" y1="43" x2="218" y2="43" stroke-width="1"/>
+        <line x1="362" y1="34" x2="580" y2="34" stroke-width="2"/>
+        <line x1="382" y1="43" x2="556" y2="43" stroke-width="1"/>
+        <path d="M248 34 C 262 10, 284 10, 291 27" stroke-width="2"/>
+        <path d="M352 34 C 338 10, 316 10, 309 27" stroke-width="2"/>
+        <circle cx="300" cy="34" r="17" stroke-width="2"/>
+        <rect x="293" y="27" width="14" height="14" transform="rotate(45 300 34)" fill="currentColor" stroke="none"/>
+      </svg>
+      <p>End-mark &middot; placeholder</p>
+    </div>
+
+    <footer class="colophon">
+      <p>Colophon &middot; placeholder &middot; ink on parchment &middot; set in Cinzel Decorative, Fondamento &amp; EB Garamond</p>
+    </footer>
+
+    <!-- Tail cap: mirrors the lead-in so the bottom desk zone doesn't
+         pull away from a blank cliff either. -->
+    <div class="sheet-cap sheet-tail" aria-hidden="true">
+      <svg class="cap-sigil draw-reveal" viewBox="0 0 260 120" fill="none">
+        <circle cx="130" cy="60" r="44" pathLength="1"/>
+        <circle cx="130" cy="60" r="37" pathLength="1"/>
+        <text x="130" y="64" text-anchor="middle" dominant-baseline="middle">fin</text>
+        <path d="M78 60 H26" pathLength="1"/>
+        <path d="M182 60 H234" pathLength="1"/>
+        <path d="M14 60 l7 -7 7 7 -7 7 z" pathLength="1"/>
+        <path d="M232 60 l7 -7 7 7 -7 7 z" pathLength="1"/>
+      </svg>
+    </div>
+
+  </main>
+</div>
+
+<!-- Desk zone, bottom (ADR-0009): the valley returns to the wide desk,
+     fully reversible — scrolling back up re-enters the read framing.
+     Band ink art: the wax seal that closed the letter, waiting at the
+     sheet's end. -->
+<div class="desk-zone" id="zone-bottom" aria-hidden="true">
+  <svg class="band-art band-art-bottom" viewBox="0 0 900 240" fill="none">
+    <circle cx="450" cy="108" r="46" stroke-width="2.5"/>
+    <circle cx="450" cy="108" r="37" stroke-width="1.5"/>
+    <path d="M450 84 l7 15 16 2 -12 11 3 16 -14 -8 -14 8 3 -16 -12 -11 16 -2 z" stroke-width="1.5"/>
+    <path d="M450 154 C 446 172, 448 186, 452 198" stroke-width="1.5"/>
+    <path d="M310 132 C 368 120, 400 126, 404 108" stroke-width="2"/>
+    <path d="M590 132 C 532 120, 500 126, 496 108" stroke-width="2"/>
+    <path d="M142 132 C 208 122, 262 128, 310 132" stroke-width="1.5"/>
+    <path d="M758 132 C 692 122, 638 128, 590 132" stroke-width="1.5"/>
+    <path d="M112 132 l9 -9 9 9 -9 9 z" stroke-width="1.5"/>
+    <path d="M770 132 l9 -9 9 9 -9 9 z" stroke-width="1.5"/>
+    <circle cx="452" cy="216" r="2.5" stroke-width="1.5"/>
+  </svg>
+  <p class="zone-cue zone-cue-top"><span class="zone-cue-inner">keep pulling &darr;</span></p>
+</div>
+
+<!-- Ember particles on reveals (step 3). Fixed overlay, pointer-transparent. -->
+<canvas id="embers" aria-hidden="true"></canvas>
+
+<!-- Cinematic grade overlays (ADR-0010): over 3D and DOM alike. -->
+<div id="warmth" aria-hidden="true"></div>
+<div id="vignette" aria-hidden="true"></div>
+<div id="grain" aria-hidden="true"></div>
+<div id="seam-flash" aria-hidden="true"></div>
+
+<!-- Kindle: floating muted-first toggle, kindles the harp music (1b). Icons: Lucide volume-x / volume-2 (ISC, https://lucide.dev). -->
+<button id="kindle" aria-label="Kindle background music" aria-pressed="false" hidden>
+  <svg class="icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+  <svg class="icon-sound" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+</button>
+
+<!-- 3D desk scene (premium pass, ADR-0007..0012). three.js 0.160.0 pinned (MIT);
+     addons (bloom) come from the same pinned package via three/addons/. -->
+<div id="gl" aria-hidden="true"><canvas id="gl-canvas"></canvas></div>
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+<script type="module" src="scene.js?v=14"></script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.13.0/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.13.0/ScrollTrigger.min.js"></script>
+<script src="parchment.js?v=14"></script>
+<script src="app.js?v=14"></script>
+</body>
+</html>

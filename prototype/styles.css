@@ -1,0 +1,560 @@
+/* Prototype — tokens per .tmp/pen-runs/tokens.md (draft) */
+:root {
+  --parchment: #E8D5A3;
+  --parchment-light: #F5ECD7;
+  --ink: #2A1A0E;
+  --ember: #FF9A2A;
+  --desk: #3B2412;
+  --candle: #FFB347;
+  --night: #14100B;
+  --font-display: "Cinzel Decorative", serif;
+  --font-hand: "Fondamento", cursive;
+  --font-body: "EB Garamond", serif;
+}
+
+* { box-sizing: border-box; }
+/* MANDATORY by default (user iterate: "going from one section should
+   strongly snap to the next") — resting between sections is no longer
+   allowed. PROXIMITY inside the two desk bands (scene.js flips the class
+   with zone membership; CSS cannot vary snap-type by scroll region), so
+   the 3D scrub keeps resting anywhere. The old mandatory yank is bounded
+   now: the flip happens as the band activates, and the top band holds
+   no snap targets for a stray mandatory snap to grab. */
+html { scroll-behavior: smooth; scroll-snap-type: y mandatory; }
+html.snap-soft { scroll-snap-type: y proximity; }
+/* Free-scroll mode while a desk zone owns the camera (ADR-0012).
+   Toggled by scene.js; restored on zone exit so pulls snap again. */
+html.no-snap { scroll-snap-type: none; }
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  color: var(--ink);
+  background-color: #1d1209;
+}
+
+/* 2D desk wood, graded to match the 3D table (user: flat photo read
+   artificial). One filtered fixed layer, darkened and warmed. */
+#deskwood {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(16, 9, 4, 0.42), rgba(10, 6, 3, 0.6)),
+    url("../.tmp/pen-runs/assets/pbr/wood-wood051/Wood051_color_1K.jpg");
+  background-size: cover, 1024px;
+  filter: brightness(0.72) saturate(1.12) contrast(1.05);
+}
+
+/* Candlelight on the desk margins (2D pools; the 3D scene owns candles
+   on desktop — these warm the DOM page in read framing). */
+body::before, body::after {
+  content: ""; position: fixed; top: -90px; width: 360px; height: 360px;
+  border-radius: 50%; pointer-events: none; z-index: 0;
+  background: radial-gradient(circle, rgba(255, 179, 71, 0.30), rgba(255, 154, 42, 0.10) 45%, transparent 70%);
+}
+body::before { left: -70px; }
+body::after { right: -70px; }
+
+/* Illustrated desk candles: the 3D scene owns candles on desktop (scene.js);
+   the SVG pair stands in only where WebGL is absent (<=768px). */
+.candle { position: absolute; top: 48px; width: 96px; z-index: 0; display: none; }
+.candle.left { left: max(24px, calc((100% - 1292px) / 2)); }
+.candle.right { right: max(24px, calc((100% - 1292px) / 2)); }
+.candle svg { width: 100%; height: auto; display: block; }
+.candle .flame { transform-origin: 60px 100px; animation: flicker 1.8s ease-in-out infinite; }
+@keyframes flicker {
+  0%, 100% { transform: scaleY(1); opacity: 1; }
+  30% { transform: scaleY(1.05) scaleX(0.98); opacity: 0.92; }
+  60% { transform: scaleY(0.96); opacity: 1; }
+}
+@media (max-width: 768px) { .candle { display: block; } }
+
+/* ---------- Desk zones (ADR-0012): thin free-scroll bands that own the
+   camera valley. Hidden wherever the 3D scene is absent. ---------- */
+/* Cinematic frame: the scrollbar joins the night instead of cutting a
+   light stripe down every shot. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: #3a2a18 #14100b;
+}
+::-webkit-scrollbar { width: 10px; background: #14100b; }
+::-webkit-scrollbar-thumb { background: #3a2a18; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #55402a; }
+
+.desk-zone { position: relative; width: 100%; }
+/* The wide desk at page top is a legitimate resting point, mirroring the
+   end desk — an anchor here keeps End/Home-style jumps and proximity
+   settles honest, and gives the top band one honest snap target. */
+#zone-top { height: 150svh; scroll-snap-align: start; }
+/* The end desk is a legitimate resting point: snap can anchor here, so
+   an instant jump (End key, deep restore) settles on the wide view. */
+#zone-bottom { height: 150svh; scroll-snap-align: end; }
+/* The cue pulses on an inner span so scene.js can fade the parent's
+   opacity directly — a CSS animation on the parent would override it. */
+.zone-cue {
+  position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+  margin: 0; color: var(--parchment-light); font-size: 12px;
+  letter-spacing: 5px; text-transform: uppercase; opacity: 0.55;
+  white-space: nowrap; z-index: 1;
+  transition: opacity 300ms ease;
+}
+.zone-cue-inner { display: inline-block; animation: cue-pulse 2s ease-in-out infinite; }
+.zone-cue-top { top: 40px; bottom: auto; }
+@media (max-width: 768px) { .desk-zone { display: none; } }
+
+/* ---------- Band ink art (user: the two desk bands should read as
+   pages, not empty scroll) ---------- ---------- */
+/* They live behind the 3D layer, emerging where the layer fades (the
+   last third of the top band, the first fifth of the bottom band) and
+   standing fully visible wherever the 3D never covers them. Deliberately
+   NOT reveal-classed: an unseen draw-on under the opaque layer would
+   waste the animation the same way the old hero bug did. */
+.band-art {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(74vw, 660px);
+  color: var(--parchment-light);
+  opacity: 0.34;
+  pointer-events: none;
+}
+.band-art path, .band-art circle, .band-art line, .band-art ellipse {
+  stroke: currentColor;
+  fill: none;
+}
+.band-art-top { bottom: 20svh; }
+.band-art-bottom { top: 24svh; }
+
+/* ---------- 3D desk scene overlay: opacity is scrubbed by scene.js
+   (intro + desk zones), never CSS-transitioned. Pointer events are owned
+   by scene.js (auto only while the intro runs, so click-to-skip works). ---------- */
+#gl {
+  position: fixed; inset: 0; z-index: 30;
+  opacity: 0; pointer-events: none;
+  background: #14100B;
+}
+#gl-canvas { width: 100%; height: 100%; display: block; }
+
+/* ---------- Cinematic grade overlays (ADR-0010): vignette + film grain
+   sit over BOTH the 3D canvas and the DOM page, unifying the grade. ---------- */
+#vignette {
+  position: fixed; inset: 0; z-index: 34; pointer-events: none;
+  background: radial-gradient(ellipse at center,
+    transparent 52%, rgba(12, 8, 4, 0.28) 82%, rgba(8, 5, 2, 0.5) 100%);
+}
+#grain {
+  position: fixed; inset: -60px; z-index: 35; pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  opacity: 0.11; mix-blend-mode: overlay;
+  animation: grain-shift 1.1s steps(1) infinite;
+}
+@keyframes grain-shift {
+  0% { transform: translate(0, 0); }
+  20% { transform: translate(-24px, 14px); }
+  40% { transform: translate(18px, -28px); }
+  60% { transform: translate(-30px, -8px); }
+  80% { transform: translate(26px, 22px); }
+  100% { transform: translate(0, 0); }
+}
+/* Warm exposure swell that masks the 3D-to-DOM seam (ADR-0008). */
+#seam-flash {
+  position: fixed; inset: 0; z-index: 45; pointer-events: none; opacity: 0;
+  background: radial-gradient(ellipse at center,
+    rgba(255, 236, 190, 0.9), rgba(255, 190, 110, 0.55) 60%, rgba(255, 154, 42, 0.2) 100%);
+}
+/* Candlelight wash over the DOM page (ADR-0008): the same warm pools and
+   amber tint the 3D scene carries, so read framing and desk view agree. */
+#warmth {
+  position: fixed; inset: 0; z-index: 26; pointer-events: none;
+  background:
+    radial-gradient(640px 460px at 4% -4%, rgba(255, 179, 71, 0.14), transparent 62%),
+    radial-gradient(640px 460px at 96% -4%, rgba(255, 179, 71, 0.14), transparent 62%),
+    radial-gradient(140% 100% at 50% 40%, transparent 55%, rgba(64, 36, 10, 0.16) 100%),
+    linear-gradient(rgba(255, 184, 96, 0.05), rgba(150, 80, 22, 0.06));
+}
+
+/* ---------- Loader (no gate, auto-dissolves) ---------- */
+#loader {
+  position: fixed; inset: 0; z-index: 50;
+  background: var(--night);
+  color: var(--parchment-light);
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity 600ms ease;
+}
+#loader.gone { opacity: 0; pointer-events: none; }
+.loader-inner { text-align: center; font-size: 18px; letter-spacing: 1px; }
+.loader-sigil {
+  width: 56px; height: 56px; margin: 0 auto 16px;
+  border: 2px solid var(--ember); border-radius: 50%;
+  animation: kindle-pulse 1.6s ease-out infinite;
+}
+
+/* Kindle: floating muted-first toggle. Ink-drawn register — an ink ring
+   on parchment, not a pulsing notification badge; the pulse stops after
+   the first interaction (.settled, set by app.js). */
+#kindle {
+  position: fixed; right: 22px; bottom: 22px; z-index: 40;
+  width: 52px; height: 52px; border-radius: 50%;
+  background: rgba(245, 236, 215, 0.92);
+  border: 2px solid rgba(42, 26, 14, 0.85);
+  color: var(--ink); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  animation: kindle-pulse 2.2s ease-out infinite;
+}
+#kindle[hidden] { display: none; }
+#kindle svg { width: 22px; height: 22px; }
+#kindle .icon-sound { display: none; }
+#kindle.on .icon-sound { display: block; }
+#kindle.on .icon-muted { display: none; }
+#kindle.on { animation: none; box-shadow: 0 0 14px var(--ember); border-color: var(--ember); }
+#kindle.settled { animation: none; }
+
+/* Static fallback: no GSAP means no hidden states, plain readable page. */
+html.no-gsap .ember-reveal, html.no-gsap .ink-reveal {
+  opacity: 1; transform: none; clip-path: none; text-shadow: none;
+}
+html.no-gsap .ember-reveal .ch {
+  opacity: 1; transform: none; filter: none; color: inherit; text-shadow: none; transition: none;
+}
+html.no-gsap .ink-reveal img { clip-path: none; filter: grayscale(1) contrast(1.06); }
+html.no-gsap .char-line, html.no-gsap .burn-frame,
+html.no-gsap #embers { display: none; }
+html.no-gsap .cap-sigil circle, html.no-gsap .cap-sigil path {
+  stroke-dashoffset: 0; transition: none;
+}
+html.no-gsap .cap-sigil text { opacity: 1; transition: none; }
+@keyframes kindle-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 154, 42, 0.45); }
+  70% { box-shadow: 0 0 0 16px rgba(255, 154, 42, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 154, 42, 0); }
+}
+
+/* ---------- Desk + column (free scroll, grain overlay) ---------- */
+.desk { padding: 40px 20px; position: relative; z-index: 1; }
+.column {
+  position: relative;
+  max-width: 1100px; margin: 0 auto;
+  background-color: var(--parchment-light);
+  /* Edge of a cut sheet: a single ink hairline + soft lift, not a
+     2px demo border with a dashed stitch (critic P1-4). */
+  border: 1px solid rgba(42, 26, 14, 0.5);
+  box-shadow:
+    inset 0 0 0 1px rgba(42, 26, 14, 0.14),
+    inset 0 0 60px rgba(96, 60, 22, 0.1),
+    0 2px 24px rgba(10, 6, 2, 0.55);
+  padding: 64px 84px;
+}
+/* Static candle falloff over the column: bright near the top where the
+   candles sit, dimmer at the foot — halves the 3D-to-DOM grade gap. */
+.column::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(90% 55% at 50% 0%, rgba(255, 200, 122, 0.1), transparent 60%),
+    linear-gradient(rgba(64, 38, 12, 0), rgba(48, 28, 8, 0.14));
+}
+/* Paper surface: flat grain is the no-JS fallback; once parchment.js sets
+   the shared generated base inline, it stands down (.textured) so the two
+   never double up. */
+.column::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: url("../.tmp/pen-runs/assets/paper002-color.jpg");
+  background-size: 1024px;
+  opacity: 0.38;
+}
+.column.textured::before { display: none; }
+.column > * { position: relative; z-index: 1; }
+
+/* ---------- Pulls: one viewport each, snap into place ---------- */
+.pull {
+  min-height: 100svh; padding: 56px 0; position: relative;
+  display: flex; flex-direction: column; justify-content: center;
+  scroll-snap-align: start;
+}
+/* Hero keeps one full screen so the scroll cue sits at its foot. */
+#hero { display: flex; flex-direction: column; justify-content: center; }
+.pull-footer {
+  margin-top: 40px; text-align: center;
+  font-size: 13px; letter-spacing: 3px;
+}
+/* Divider: drawn, not typed — two ink hairlines and a rotated diamond
+   square instead of system glyphs (critic P1-4). */
+.divider { position: relative; height: 18px; margin: 26px auto; width: min(520px, 80%); font-size: 0; }
+.divider::before {
+  content: ""; position: absolute; left: 0; right: calc(50% + 18px); top: 50%;
+  height: 1px; background: rgba(42, 26, 14, 0.65);
+  box-shadow: 0 1px 0 rgba(255, 248, 225, 0.4);
+}
+.divider::after {
+  content: ""; position: absolute; right: 0; left: calc(50% + 18px); top: 50%;
+  height: 1px; background: rgba(42, 26, 14, 0.65);
+  box-shadow: 0 1px 0 rgba(255, 248, 225, 0.4);
+}
+.divider .diamond {
+  position: absolute; left: 50%; top: 50%; width: 8px; height: 8px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  background: var(--ink);
+}
+
+.eyebrow { font-size: 14px; letter-spacing: 3.5px; text-transform: uppercase; margin: 0 0 14px; opacity: 0.92; }
+.name { font-family: var(--font-display); font-size: 66px; line-height: 1.04; margin: 0 0 10px; letter-spacing: 0.5px; }
+.hand-title { font-family: var(--font-hand); font-size: 29px; margin: 0 0 18px; }
+.hook { font-size: 21px; line-height: 1.6; margin: 0 0 26px; }
+.quest-title { font-family: var(--font-display); font-size: 42px; margin: 0 0 14px; line-height: 1.1; }
+.quest-text { font-size: 21px; line-height: 1.6; }
+.meta, .links, .tale { font-size: 17px; line-height: 1.6; }
+.tale-label { font-weight: 500; }
+.runes { list-style: none; display: flex; gap: 10px; padding: 0; flex-wrap: wrap; }
+.runes li { font-size: 14px; border: 1px solid var(--ink); border-radius: 999px; padding: 4px 14px; }
+.ways { list-style: none; padding-left: 0; }
+.ways li { position: relative; padding-left: 22px; }
+.ways li::before {
+  content: ""; position: absolute; left: 2px; top: 0.62em;
+  width: 7px; height: 7px; background: var(--ink);
+  transform: rotate(45deg);
+}
+
+/* ---------- Hero: image-left / text-right (mirrored vs quests) ---------- */
+.hero-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
+.hero-ring { display: none; }
+.hero-panel, .sketch { margin: 0; }
+.hero-panel { overflow: hidden; } /* parallax rides the img, never the frame */
+.hero-panel img, .sketch img, .hero-ring img {
+  width: 100%; height: auto; display: block;
+  filter: grayscale(1) contrast(1.06); /* B&W, sketch stays sketch */
+  border: 2px solid var(--ink);
+  background: var(--parchment-light);
+}
+.hero-panel img { aspect-ratio: 4 / 5; object-fit: cover; }
+.sketch img { aspect-ratio: 4 / 5; object-fit: cover; }
+
+.cta-row { display: flex; gap: 14px; flex-wrap: wrap; }
+.cta {
+  font-size: 18px; color: var(--parchment-light); background: var(--ink);
+  padding: 13px 28px; border-radius: 4px; text-decoration: none;
+  transition: box-shadow 400ms ease, transform 400ms ease; /* 400ms fire token */
+}
+.cta.ghost { background: transparent; color: var(--ink); border: 2px solid var(--ink); }
+.cta:hover { box-shadow: 0 0 0 3px var(--ember); transform: translateY(-1px); }
+/* Scroll cue: pinned to the hero foot, pulsing. The pulse lives on an
+   inner span — a running CSS animation on the parent would override the
+   scrub tween's inline opacity writes every frame (critic P2). */
+.scroll-cue {
+  position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+  font-size: 14px; letter-spacing: 2px; margin: 0; opacity: 0.75; white-space: nowrap;
+}
+.scroll-cue-inner { display: inline-block; animation: cue-pulse 2s ease-in-out infinite; }
+@keyframes cue-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+/* ---------- Quests: text-left / sketch-right ---------- */
+.quest-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
+.links a { color: var(--ink); }
+
+/* Parent stays hidden until reveal (fallback path for un-split elements);
+   split elements hide per-char instead and the parent simply unmasks. */
+.ember-reveal { opacity: 0; }
+.ember-reveal.revealed { opacity: 1; transition: opacity 200ms ease; }
+
+/* ---------- Charred reveal (ADR-0011): per-character ignition ----------
+   Each glyph lands white-hot fast, holds, then cools to ink over the
+   400ms token. Per-char transitionDelay is set inline by app.js. */
+/* Word groups keep line-breaking honest; chars ride inside them. */
+.ember-reveal .ch-word {
+  display: inline-block;
+  white-space: nowrap;
+}
+.ember-reveal .ch {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(0.32em);
+  filter: blur(4px);
+  color: #FFF6DC;
+  text-shadow: 0 0 18px rgba(255, 179, 71, 0.95), 0 0 4px rgba(255, 246, 220, 0.9),
+    0 0 34px rgba(255, 154, 42, 0.55);
+  transition: opacity 120ms ease, transform 170ms ease, filter 300ms ease,
+    color 400ms ease, text-shadow 400ms ease;
+  will-change: opacity, transform, filter;
+}
+.ember-reveal.ignited .ch {
+  opacity: 1; transform: none; filter: blur(0.5px);
+  color: inherit; text-shadow: none;
+}
+.ember-reveal.cooled .ch { will-change: auto; }
+
+/* ---------- Ink reveal (sketches draw in behind a burning filament) -----
+   .char-line is a ragged ember filament (noise-eaten gradient) that sweeps
+   top->bottom; the sketch wipes in behind it, then the frame cools. */
+.ink-reveal { opacity: 0; transform: translateY(14px); position: relative; }
+.ink-reveal.revealed {
+  opacity: 1; transform: none;
+  transition: opacity 300ms ease, transform 300ms ease;
+}
+.ink-reveal img {
+  clip-path: inset(0 0 100% 0);
+  filter: grayscale(1) contrast(1.06) brightness(1.6);
+}
+.ink-reveal.revealed img {
+  clip-path: inset(0 0 0 0);
+  filter: grayscale(1) contrast(1.06) brightness(1);
+  transition: clip-path 1100ms ease, filter 900ms ease;
+}
+.ink-reveal .char-line {
+  position: absolute; left: -2%; right: -2%; height: 30px; top: -20px;
+  pointer-events: none; z-index: 2; mix-blend-mode: screen;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='60'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012 0.3' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='60' filter='url(%23c)'/%3E%3C/svg%3E"),
+    linear-gradient(180deg,
+      rgba(255, 154, 42, 0) 0%,
+      rgba(255, 154, 42, 0.75) 35%,
+      rgba(255, 246, 220, 0.95) 62%,
+      rgba(255, 120, 20, 0.8) 78%,
+      rgba(255, 154, 42, 0) 100%);
+  background-size: 300px 100%, 100% 100%;
+  background-blend-mode: multiply;
+  filter: blur(1px) saturate(1.3);
+  box-shadow: 0 0 26px 8px rgba(255, 154, 42, 0.5);
+  animation: charline-wobble 0.32s ease-in-out infinite alternate;
+}
+@keyframes charline-wobble {
+  from { transform: scaleY(0.9); }
+  to { transform: scaleY(1.14) translateY(1px); }
+}
+.ink-reveal .burn-frame {
+  position: absolute; inset: -6px; pointer-events: none; z-index: 2;
+  border: 2px solid rgba(255, 179, 71, 0.95);
+  box-shadow: 0 0 18px rgba(255, 154, 42, 0.8), inset 0 0 14px rgba(255, 154, 42, 0.5);
+  opacity: 0;
+}
+.ink-reveal.framed .burn-frame { animation: frame-cool 650ms ease forwards; }
+@keyframes frame-cool {
+  0% { opacity: 0; } 12% { opacity: 1; } 100% { opacity: 0; }
+}
+
+/* Replay helper: transitions off while a reveal snaps back to its unlit
+   state, so re-adding the play class re-runs the transition fresh. */
+.rearm, .rearm .ch, .rearm img,
+.rearm circle, .rearm path, .rearm text { transition: none !important; }
+
+/* ---------- Sigil caps: sheet lead-in + tail (user: the letter must
+   open mid-desk, not at the top edge) ---------- */
+.sheet-cap {
+  height: 36svh;
+  display: flex; align-items: center; justify-content: center;
+}
+.sheet-tail { height: 29svh; }
+.sheet-tail .cap-sigil { transform: scale(0.78); }
+.cap-sigil { width: min(320px, 62%); overflow: visible; }
+.cap-sigil circle, .cap-sigil path {
+  stroke: rgba(42, 26, 14, 0.85); stroke-width: 2; fill: none;
+  stroke-dasharray: 1; stroke-dashoffset: 1;
+  transition: stroke-dashoffset 1.1s ease;
+}
+.cap-sigil circle:last-of-type { stroke-width: 1.2; }
+.cap-sigil text {
+  font-family: var(--font-display); font-weight: 700; font-size: 44px;
+  fill: rgba(42, 26, 14, 0.92);
+  opacity: 0; transition: opacity 700ms ease 550ms;
+}
+.draw-reveal.on circle, .draw-reveal.on path { stroke-dashoffset: 0; }
+.draw-reveal.on text { opacity: 1; }
+
+/* ---------- Ember particles: rising sparks on every reveal ---------- */
+#embers {
+  position: fixed; inset: 0; z-index: 25; pointer-events: none;
+}
+
+/* ---------- About + contact side-by-side ---------- */
+.about-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; }
+/* Let the final pull breathe instead of dying at 60% height. */
+#about-contact { padding-bottom: 90px; }
+.bio p { font-size: 18px; line-height: 1.6; }
+.ways { font-size: 17px; line-height: 1.65; list-style: none; padding-left: 0; }
+.contact label { display: block; font-size: 17px; margin-bottom: 16px; }
+.contact input, .contact textarea {
+  display: block; width: 100%; margin-top: 6px;
+  font-family: var(--font-body); font-size: 18px; color: var(--ink);
+  background: transparent;
+  border: none; border-bottom: 1px solid rgba(42, 26, 14, 0.7);
+  border-radius: 0; padding: 8px 2px;
+  transition: box-shadow 400ms ease; /* 400ms fire token */
+}
+.contact input:focus, .contact textarea:focus {
+  outline: none;
+  box-shadow: 0 1px 0 var(--ember);
+}
+.contact textarea { resize: none; }
+
+/* Wax seal: a real pressed seal — filled disc, embossed initial. */
+.seal {
+  display: flex; align-items: center; gap: 14px;
+  background: none; border: none; cursor: pointer; padding: 6px 0;
+  font-family: var(--font-body); color: var(--ink); font-size: 17px;
+}
+.seal-ring {
+  position: relative;
+  width: 64px; height: 64px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #a03024, #7a1f14 48%, #4a100a);
+  box-shadow:
+    inset 0 2px 4px rgba(255, 200, 170, 0.35),
+    inset 0 -3px 6px rgba(20, 4, 2, 0.6),
+    0 2px 6px rgba(10, 4, 2, 0.4);
+  transition: box-shadow 400ms ease, transform 400ms ease; /* 400ms fire token */
+}
+.seal-ring::after {
+  content: "U";
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-size: 24px; font-weight: 700;
+  color: rgba(255, 214, 180, 0.55);
+  text-shadow: 0 -1px 1px rgba(20, 4, 2, 0.8), 0 1px 1px rgba(255, 200, 170, 0.25);
+}
+.seal:hover .seal-ring { box-shadow: 0 0 14px var(--ember); transform: scale(1.04); }
+.seal-label { letter-spacing: 1px; }
+.form-note { font-size: 16px; font-style: italic; }
+
+/* End-mark line art before the colophon (own work, placeholder). */
+.end-art { text-align: center; margin: 40px auto 8px; color: var(--ink); }
+.end-art svg { width: min(520px, 85%); height: auto; display: block; margin: 0 auto; }
+.end-art p { font-size: 13px; letter-spacing: 3px; text-transform: uppercase; opacity: 0.8; }
+
+.colophon { text-align: center; font-size: 13px; letter-spacing: 2px; margin-top: 40px; opacity: 0.85; }
+
+/* ---------- Mobile: ring hero, stacked pulls, separate sketch screens ---------- */
+@media (max-width: 768px) {
+  /* Mobile hides the desk bands, which deletes the y=0 snap anchor —
+     mandatory would make everything above the hero an unrestable dead
+     zone (critic P1). Loose proximity, as before the round-4 split. */
+  html { scroll-snap-type: y proximity; }
+  .desk { padding: 16px 10px; }
+  .column { padding: 32px 22px; outline-offset: -7px; }
+  .pull { padding: 40px 0; }
+  #hero { min-height: 100svh; }
+  .hero-grid, .quest-grid, .about-grid { grid-template-columns: 1fr; gap: 28px; }
+  .hero-panel { display: none; }
+  /* overflow+radius on the figure too: the replay filament must not
+     bleed past the circular crop (critic P2, mobile evidence shot). */
+  .hero-ring { display: block; margin: 0 auto; width: 220px; overflow: hidden; border-radius: 50%; }
+  .hero-ring img { border-radius: 50%; aspect-ratio: 1 / 1; object-fit: cover; }
+  .name { font-size: 34px; }
+  .hand-title { font-size: 20px; }
+  .quest-title { font-size: 28px; }
+  .hero-text { text-align: center; }
+  .cta-row { justify-content: center; }
+  .sketch img { aspect-ratio: 4 / 3; }
+  #kindle { right: 14px; bottom: 14px; }
+}
+
+/* ---------- Reduced motion: show final state, no pulse/flicker ---------- */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; scroll-snap-type: none; }
+  .desk-zone { display: none; }
+  .ember-reveal, .ink-reveal { opacity: 1; transform: none; clip-path: none; text-shadow: none; }
+  .ember-reveal .ch {
+    opacity: 1; transform: none; filter: none; color: inherit; text-shadow: none; transition: none;
+  }
+  .ember-reveal.revealed, .ink-reveal.revealed { transition: none; }
+  .ink-reveal img { clip-path: none; filter: grayscale(1) contrast(1.06); transition: none; }
+  .char-line, .burn-frame, #embers { display: none; }
+  .scroll-cue, .scroll-cue-inner, .loader-sigil, .candle .flame, .zone-cue-inner, .char-line, #kindle { animation: none; }
+  #grain { animation: none; }
+  #loader { transition: none; }
+  .cap-sigil circle, .cap-sigil path { stroke-dashoffset: 0; transition: none; }
+  .cap-sigil text { opacity: 1; transition: none; }
+}
