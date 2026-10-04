@@ -1,0 +1,9 @@
+# Charred reveal: char edge + embers + heat shimmer; all fire timings 400ms
+
+Status: accepted (2026-10-04).
+
+Text and sketch reveals become a charred burn: a ragged charred edge with ember glow and heat shimmer consumes each line, ink settles behind it, sparks drift, lines stagger. Per-element fire animation, this replaces the flat CSS gradient fire-front bar (a "childish" tell). Cool-to-ink and all fire settle timings are 400ms — the earlier 270ms was judged too short to appreciate (user, 2026-10-04); only the char pass itself may run longer. Mobile ≤768px (no WebGL) keeps exactly this 2D charred reveal — it is the mobile experience, not a fallback. Consequence: reveal code owns three coordinated layers (char mask, glow, sparks) per element, so reveal triggers must stay per-line, and the 400ms token is the single source of truth for both CSS and JS timings.
+
+## Update (2026-10-04, user iterate round)
+
+Reveals are no longer once-only: every ember/ink/sigil reveal REPLAYS each time its element re-enters the viewport, from either direction (ScrollTrigger onEnter + onEnterBack with an explicit end line; IntersectionObservers no longer unobserve). Three guards keep this honest: a ~900ms per-element cooldown so boundary jitter cannot machine-gun replays; zone defer — nothing plays while a desk zone owns the screen (deferred plays flush when the 2D column is visible again; the 3D sheet itself stays static by design); and a reveal gate — nothing plays until the intro handoff, so the hero ignition is always SEEN (it used to fire under the 3D overlay and get "cached and skipped"). Replays reset state through a transition-suppressing `.rearm` class so the burn re-runs fresh instead of reversing mid-flight. Consequence: reveal functions must be idempotent-and-restartable, and every play paths (direct, gate flush, zone flush) shares one scheduler.
