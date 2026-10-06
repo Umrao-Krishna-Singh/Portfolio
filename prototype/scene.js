@@ -43,6 +43,9 @@ import * as THREE from "three";
        the DOM page stands alone (critic P1). */
     document.body.style.overflow = "";
     document.documentElement.classList.remove("no-snap");
+    /* The column may be mid-crossfade — the standalone page must be
+       fully visible. */
+    if (columnEl) columnEl.style.opacity = "";
     /* Tell app.js the loader may dissolve now — the gated loader must
        never wait on a scene that will never report ready. */
     try {
@@ -127,10 +130,29 @@ import * as THREE from "three";
       composer.addPass(bloomPass);
       composer.addPass(new OutputPass());
       composer.setSize(window.innerWidth, window.innerHeight);
+      /* The first composer render must see everything the intro will
+         reveal: compile/renders only touch VISIBLE objects, and the
+         sheet plane + head rod sit hidden while open=0 — their first
+         visible frame would otherwise be the unroll's first frame
+         (user: intro "gets stuck once the roll starts"). */
+      warmHidden(true);
       composer.render();
+      warmHidden(false);
     }
     composerReady = true;
   }).catch(function () { composer = null; composerReady = true; });
+
+  /* Show/hide the not-yet-unrolled sheet parts for warm passes. The 1px
+     sliver renders only behind the opaque loader. */
+  function warmHidden(show) {
+    if (show) {
+      if (plane) plane.visible = true;
+      if (topDowel) topDowel.visible = true;
+    } else {
+      if (plane) plane.visible = open > 0.01;
+      if (topDowel) topDowel.visible = open > 0.02;
+    }
+  }
 
   /* ---------- Lights: pooled candlelight in a readable room ----------
      Night air gets DIRECTION, not a flat wash (research Finding 5): a
@@ -336,6 +358,14 @@ import * as THREE from "three";
         planeMat.color.set(0xffffff);
         planeMat.needsUpdate = true;
         applySheetWindow();
+        /* A bake landing after the warm pass must not pay its first-frame
+           bill on screen — ALWAYS upload + compile here, whatever the
+           intro is doing (a program swap on the unroll's first frame is
+           the hitch; a compile during the quiet hold is invisible). */
+        try { renderer.initTexture(t); } catch (e) {}
+        plane.visible = true;
+        try { renderer.compile(scene, camera); } catch (e) {}
+        plane.visible = open > 0.01;
         return;
       } catch (e) { if (attempt) return; }
     }
@@ -910,12 +940,111 @@ import * as THREE from "three";
   scene.add(stamp);
 
   var looseSheets = new THREE.Group();
+  var sheetPainted = [];
+  /* Ink content for the loose sheets (user round 5b: "add some artwork
+     to the cards to give them character"): quill-style scribbles — a
+     letter, a rough map, a sigil page. Deterministic per sheet (seeded
+     LCG) so the grain repaint redraws the SAME art, not a new one. */
+  function doodleSheet(g, w, h, kind, seed) {
+    var s = 1234 + seed * 77;
+    function rnd() { s = (s * 16807) % 2147483647; return s / 2147483647; }
+    var ink = "rgba(56,38,18,0.8)";
+    g.strokeStyle = ink; g.fillStyle = ink;
+    g.lineCap = "round";
+    var mx = w * 0.13, mw = w * 0.74;
+    if (kind === 0) {
+      /* A letter: script lines with word gaps, short last row. */
+      var rows = 9 + Math.floor(rnd() * 3);
+      for (var r = 0; r < rows; r++) {
+        var y = h * 0.13 + r * (h * 0.7) / rows;
+        g.lineWidth = 1 + rnd() * 0.7;
+        var x = mx + (r === 0 ? 22 : rnd() * 14);
+        var end = mx + mw - (r >= rows - 2 ? mw * (0.15 + rnd() * 0.35) : 0);
+        while (x < end) {
+          var wl = 9 + rnd() * 24;
+          g.beginPath();
+          for (var px = 0; px <= wl; px += 3) {
+            var yy = y + Math.sin(px * 0.9 + r * 2) * 1.7 + (rnd() - 0.5) * 1.1;
+            if (px === 0) g.moveTo(x + px, yy); else g.lineTo(x + px, yy);
+          }
+          g.stroke();
+          x += wl + 5 + rnd() * 7;
+        }
+      }
+    } else if (kind === 1) {
+      /* A rough map: coastline, dotted route, X marks the spot. */
+      g.lineWidth = 1.4;
+      g.beginPath();
+      var cx = w * 0.44, cy = h * 0.36, R = w * 0.3;
+      for (var a = 0; a <= 6.4; a += 0.35) {
+        var rr = R * (0.72 + rnd() * 0.5);
+        var px2 = cx + Math.cos(a) * rr * 1.15, py2 = cy + Math.sin(a) * rr * 0.8;
+        if (a === 0) g.moveTo(px2, py2); else g.lineTo(px2, py2);
+      }
+      g.stroke();
+      g.lineWidth = 1.3; g.setLineDash([4, 5]);
+      g.beginPath();
+      g.moveTo(w * 0.2, h * 0.75);
+      g.bezierCurveTo(w * 0.4, h * 0.6, w * 0.55, h * 0.55, w * 0.72, h * 0.4);
+      g.stroke();
+      g.setLineDash([]);
+      g.lineWidth = 1.8;
+      [[w * 0.72, h * 0.4], [w * 0.24, h * 0.73]].forEach(function (p) {
+        g.beginPath();
+        g.moveTo(p[0] - 5, p[1] - 5); g.lineTo(p[0] + 5, p[1] + 5);
+        g.moveTo(p[0] + 5, p[1] - 5); g.lineTo(p[0] - 5, p[1] + 5);
+        g.stroke();
+      });
+      /* Compass cross, corner. */
+      g.lineWidth = 1.2;
+      g.beginPath();
+      g.moveTo(w * 0.84, h * 0.1); g.lineTo(w * 0.84, h * 0.2);
+      g.moveTo(w * 0.79, h * 0.15); g.lineTo(w * 0.89, h * 0.15);
+      g.stroke();
+    } else {
+      /* A sigil page: circle + inscribed star, rune rows beneath. */
+      g.lineWidth = 1.5;
+      var sx = w * 0.5, sy = h * 0.24, sr = w * 0.24;
+      g.beginPath(); g.arc(sx, sy, sr, 0, 6.283); g.stroke();
+      g.beginPath();
+      for (var p2 = 0; p2 < 6; p2++) {
+        var an = -1.57 + p2 * (6.283 / 3); /* hexagram: step 2 vertices */
+        var vx = sx + Math.cos(an) * sr, vy = sy + Math.sin(an) * sr;
+        if (p2 === 0) g.moveTo(vx, vy); else g.lineTo(vx, vy);
+      }
+      g.closePath(); g.stroke();
+      for (var rp = 0; rp < 4; rp++) {
+        var ry = h * 0.5 + rp * h * 0.09;
+        g.lineWidth = 1 + rnd() * 0.6;
+        for (var m = 0; m < 6 + Math.floor(rnd() * 3); m++) {
+          var rxx = mx + m * (mw / 8) + rnd() * 4;
+          g.beginPath();
+          g.moveTo(rxx, ry - 4 + rnd() * 3);
+          g.lineTo(rxx + 3 + rnd() * 5, ry + 4 - rnd() * 3);
+          if (rnd() < 0.5) { g.moveTo(rxx + 1, ry + 4); g.lineTo(rxx + 4 + rnd() * 3, ry - 4); }
+          g.stroke();
+        }
+      }
+    }
+    /* An ink blot or two — every desk has one. */
+    for (var b = 0; b < 2; b++) {
+      g.beginPath();
+      g.arc(mx + rnd() * mw, h * (0.2 + rnd() * 0.7), 1.5 + rnd() * 2.5, 0, 6.283);
+      g.fill();
+    }
+  }
   function buildLooseSheets() {
     for (var s = 0; s < 3; s++) {
       (function (idx) {
-        var sc = window.Parchment
-          ? new THREE.CanvasTexture(window.Parchment.base(256, 352, { seed: 20 + idx }))
-          : null;
+        var paint = function () {
+          var c1 = window.Parchment
+            ? window.Parchment.base(256, 352, { seed: 20 + idx })
+            : null;
+          if (c1) doodleSheet(c1.getContext("2d"), 256, 352, idx, idx);
+          return c1;
+        };
+        var c1 = paint();
+        var sc = c1 ? new THREE.CanvasTexture(c1) : null;
         if (sc) sc.colorSpace = THREE.SRGBColorSpace;
         var sm = new THREE.MeshStandardMaterial({
           color: sc ? 0xe4d7b8 : 0xd8c9a8, roughness: 0.9,
@@ -927,14 +1056,40 @@ import * as THREE from "three";
         sp.position.set(-3.9 + idx * 0.14, 0.02 + idx * 0.013, -0.4 + idx * 0.18);
         sp.receiveShadow = true;
         looseSheets.add(sp);
+        if (c1 && sc) sheetPainted.push({ canvas: c1, tex: sc, paint: paint });
       })(s);
     }
     scene.add(looseSheets);
+    /* Debug handle: lets tests read the live sheet canvases (textures are
+       unreachable from outside the module otherwise). */
+    window.__TAPESTRY_SHEETS = sheetPainted;
   }
-  /* After the grain image is in, so the sheets are not flat pale cards. */
+  /* Built SYNCHRONOUSLY now: these used to arrive with the grain image,
+     popping in unlit long after the desk was on screen (user round 5:
+     "cards get light on them much later"). The photo grain composites
+     into the SAME canvases when it lands — same texture objects, so no
+     new GPU upload path — and only if the intro hasn't started. */
+  buildLooseSheets();
   if (window.Parchment) {
-    window.Parchment.loadGrain().then(buildLooseSheets).catch(buildLooseSheets);
-  } else buildLooseSheets();
+    window.Parchment.loadGrain().then(function (ok) {
+      if (!ok || introStarted) return;
+      sheetPainted.forEach(function (sp) {
+        var fresh = sp.paint();
+        if (!fresh) return;
+        sp.canvas.getContext("2d").drawImage(fresh, 0, 0);
+        sp.tex.needsUpdate = true;
+      });
+    }).catch(function () {});
+  }
+
+  /* The dressing corner sits outside both flame pools — the sheets read
+     as dark cutouts there. A small warm pool claims the corner from the
+     first frame; it rides the shared flicker (tick). */
+  var dressingLight = new THREE.SpotLight(0xffbe7a, 13, 9, 0.85, 0.95, 2);
+  dressingLight.position.set(-3.4, 3.3, 0.9);
+  dressingLight.target.position.set(-3.85, 0, -0.25);
+  scene.add(dressingLight);
+  scene.add(dressingLight.target);
 
   /* ---------- Loop: renders only while the 3D layer is visible ---------- */
   var live = false;
@@ -950,36 +1105,49 @@ import * as THREE from "three";
     if (Math.abs(opCur - opGoal) > 0.004) {
       opCur += (opGoal - opCur) * (1 - Math.exp(-dt * 10));
       holder.style.opacity = opCur.toFixed(3);
+      syncColumnFade();
     }
     if (!live) return;
     var t = clock.getElapsedTime();
     /* Watchdog (ADR-0010): below ~42fps sustained -> degrade, one way.
        Order: the spotlight shadow map first (biggest fill-rate cost),
-       then bloom, then pixel ratio. */
-    emaDt = emaDt * 0.95 + dt * 1000 * 0.05;
-    if (emaDt > 23.5) {
-      slowMs += dt * 1000;
-      if (slowMs > 2500 && stage === 0) {
-        stage = 1; slowMs = 0;
-        flameLight.castShadow = false;
-        renderer.shadowMap.enabled = false;
-        /* r160 keeps a per-material program cache: force recompile or the
-           disable is a silent no-op (critic pass 2). Multi-material meshes
-           (the roll) need per-member updates (critic round 4). */
-        scene.traverse(function (o) {
-          if (!o.material) return;
-          if (Array.isArray(o.material)) o.material.forEach(function (m) { m.needsUpdate = true; });
-          else o.material.needsUpdate = true;
-        });
-      } else if (slowMs > 2500 && stage === 1) {
-        stage = 2; slowMs = 0;
-        if (bloomPass) bloomPass.enabled = false;
-      } else if (slowMs > 2500 && stage === 2) {
-        stage = 3; slowMs = 0;
-        renderer.setPixelRatio(1.25);
-      }
+       then bloom, then pixel ratio.
+       SUSPENDED UNTIL THE INTRO IS DONE (user recording 13-34-01: the
+       stage 0->1 degrade — shadowMap off + needsUpdate on EVERY material
+       — landed mid-unroll and the resulting lazy program recompiles
+       froze the sheet for ~750ms; the cure WAS the hang). The warm
+       frames also pre-charge emaDt with ~500ms dts, so both reset here
+       every pre-handoff frame; the degrade then happens on the settled
+       desk scene, where a one-off stutter is invisible next to the
+       intro's motion. */
+    if (!introDone) {
+      emaDt = 0; slowMs = 0;
     } else {
-      slowMs = Math.max(0, slowMs - dt * 500);
+      emaDt = emaDt * 0.95 + dt * 1000 * 0.05;
+      if (emaDt > 23.5) {
+        slowMs += dt * 1000;
+        if (slowMs > 2500 && stage === 0) {
+          stage = 1; slowMs = 0;
+          flameLight.castShadow = false;
+          renderer.shadowMap.enabled = false;
+          /* r160 keeps a per-material program cache: force recompile or the
+             disable is a silent no-op (critic pass 2). Multi-material meshes
+             (the roll) need per-member updates (critic round 4). */
+          scene.traverse(function (o) {
+            if (!o.material) return;
+            if (Array.isArray(o.material)) o.material.forEach(function (m) { m.needsUpdate = true; });
+            else o.material.needsUpdate = true;
+          });
+        } else if (slowMs > 2500 && stage === 1) {
+          stage = 2; slowMs = 0;
+          if (bloomPass) bloomPass.enabled = false;
+        } else if (slowMs > 2500 && stage === 2) {
+          stage = 3; slowMs = 0;
+          renderer.setPixelRatio(1.25);
+        }
+      } else {
+        slowMs = Math.max(0, slowMs - dt * 500);
+      }
     }
     /* Out-of-phase flicker; the shader, the lights and the halos share
        one clock and one depth — brightness that desyncs from its source
@@ -1000,6 +1168,7 @@ import * as THREE from "three";
     flameLight2.intensity = 21 * f2;
     bodyLight.intensity = 9 * f1;
     bodyLight2.intensity = 7 * f2;
+    dressingLight.intensity = 13 * f1;
     haloL.material.opacity = Math.min(0.8, 0.5 * f1);
     haloR.material.opacity = Math.min(0.8, 0.5 * f2);
     camChase(dt);
@@ -1011,6 +1180,14 @@ import * as THREE from "three";
   function show() { live = true; holder.classList.add("live"); setOpacity(1); }
   function hide() { live = false; holder.classList.remove("live"); }
   function setOpacity(v) { opGoal = v; }
+  /* The DOM column crossfades against the 3D layer instead of ghosting
+     under it (user recording: both layers at ~50% read as a double
+     exposure). Tracks the DAMPED value in tick so they move together. */
+  var columnEl = document.querySelector(".column");
+  function syncColumnFade() {
+    if (!columnEl) return;
+    columnEl.style.opacity = String(Math.max(0, Math.min(1, (0.5 - opCur) * 2)));
+  }
 
   function mixPose(A, B, t) {
     camGoal.p.set(
@@ -1098,7 +1275,13 @@ import * as THREE from "three";
     topActive = true;
     zoneEnter();
     setCam(ease(p));
-    var fade = p < 0.68 ? 1 : 1 - (p - 0.68) / 0.32;
+    /* Fade starts at 72% (was 55%): the 50/50 blend band where BOTH the
+       sheet's baked text and the DOM column are legible was ~20svh of
+       restable scroll (user recording, round 6 — the ghost double-exposure
+       at every crossing). Tightening the fade band shrinks it to ~3svh,
+       a wheel-flick, and the intro crossfade is untouched (it runs through
+       zoneExit's setOpacity(0), not this scroll mapping). */
+    var fade = p < 0.72 ? 1 : 1 - (p - 0.72) / 0.28;
     setOpacity(fade < 0.02 ? 0 : fade);
     if (zoneCue) zoneCue.style.opacity = String(Math.max(0, 1 - p * 1.6));
     sheet.pageP = 0.02 + 0.09 * p;
@@ -1213,12 +1396,19 @@ import * as THREE from "three";
       }
     }
     window.scrollTo(0, land);
-    zoneExit();
     document.body.style.overflow = "";
-    /* From here the camera chases its scroll-driven goal (damped) — the
-       intro kept authored timing; the scrubbed valley gets the glide. */
+    /* Crossfade, not swap (user recording: the sheet faded off a BLANK
+       DOM hero, then the ignition re-created the same content — "contents
+       disappear and play again"). The hero batch ignites NOW under the
+       still-opaque sheet (app.js plays the handoff batch immediately);
+       the sheet lifts 260ms later, over an already-igniting page. Round 6:
+       450 -> 260 — the hold was dead air the user read as the intro
+       hanging after the unroll. */
     camDirect = false;
     window.dispatchEvent(new CustomEvent("tapestry:handoff"));
+    setTimeout(function () {
+      if (!dead) zoneExit();
+    }, 260);
     var flash = document.getElementById("seam-flash");
     if (flash && window.gsap) {
       /* A whisper of exposure shift, not a flash effect (critic: a big
@@ -1250,8 +1440,9 @@ import * as THREE from "three";
   layRoll();
   /* The roll rests just above the desk during the hold — the drop is a
      short heavy settle, not a long fall (critic: a 3-unit hover read as
-     a floating prop). */
-  rollGroup.position.y += 1.1;
+     a floating prop). Round 5: lower rest (0.75), the drop starts 0.15s
+     into the dolly — visible hover lands at ~1.5s total. */
+  rollGroup.position.y += 0.75;
 
   function startIntro() {
     if (introStarted || introDone) return;
@@ -1259,7 +1450,8 @@ import * as THREE from "three";
     window.__INTRO_STATE = "intro-running";
     holder.style.pointerEvents = "auto";
     introTl = window.gsap.timeline({ onComplete: handoff });
-    introTl.to({}, { duration: 1.9 }); /* wide hold: desk, candles, rolled scroll */
+    /* Wide hold cut 1.9 -> 1.0 (user round 5: total hover ≈1.5s, not 2.3) */
+    introTl.to({}, { duration: 1.0 }); /* wide hold: desk, candles, rolled scroll */
     /* The single dolly. */
     var dolly = { t: 0 };
     introTl.to(dolly, {
@@ -1280,13 +1472,19 @@ import * as THREE from "three";
           z: 0.016, duration: 0.18, ease: "power1.out", yoyo: true, repeat: 3
         });
       }
-    }, "<0.3");
-    /* The unroll rides the same move. */
+    }, "<0.15");
+    /* The unroll rides the same move. Easing is deliberate: power1.inOut
+       had near-zero velocity for its first ~0.5s — the sheet appeared to
+       STICK at the start of the unwrap, then catch up (user recording,
+       round 5c). power2.out leaves immediately and settles gently — a
+       scroll pays out fast and eases as it reaches full length. Round 6:
+       2.6 -> 2.2 — the decel tail read as the intro "hanging" (the sheet
+       sat motionless for ~a second before the handoff). */
     introTl.to({ v: 0 }, {
-      v: 1, duration: 2.6, ease: "power1.inOut",
+      v: 1, duration: 2.2, ease: "power2.out",
       onUpdate: function () { open = this.targets()[0].v; layRoll(); }
     }, "<0.45");
-    introTl.to({}, { duration: 0.35 });
+    introTl.to({}, { duration: 0.12 });
   }
   var introStarted = false;
   var introTl = null;
@@ -1300,12 +1498,22 @@ import * as THREE from "three";
      bill on screen. */
   (function awaitSheet() {
     var polls = 0;
+    /* Round 5b: the cap was 24 polls (4s) — on a fonts-slow machine the
+       warm ran WITHOUT the sheet texture and the 9MB bake landed
+       mid-intro (texture upload + program swap = the very hitch the warm
+       exists to prevent; verified in the user's recording). The loader
+       now genuinely waits: 90 polls ≈ 15s, after which the page has far
+       bigger problems than a late sheet. */
     (function poll() {
-      if (sheet.tex || polls++ > 24) warmAndGo();
+      if (sheet.tex || polls++ > 90) warmAndGo();
       else setTimeout(poll, 166);
     })();
   })();
   function warmAndGo() {
+    /* Same rule as the composer's first pass: the warm frames must see
+       the hidden sheet parts so their programs and the sheet texture
+       upload behind the loader, not on the unroll's first frame. */
+    warmHidden(true);
     try { renderer.compile(scene, camera); } catch (e) {}
     /* Six real frames when frames flow; BOUNDED when they don't — an
        occluded/background tab suspends rAF, and the loader must never
@@ -1314,6 +1522,7 @@ import * as THREE from "three";
     function finish() {
       if (done) return;
       done = true;
+      warmHidden(false); /* back to the open=0 rest state */
       var waits = 0;
       (function awaitComposer() {
         if (composerReady || waits++ > 15) {

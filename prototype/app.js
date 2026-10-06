@@ -125,7 +125,7 @@
         + "</article>"
         + '<figure class="sketch ink-reveal"><img src="' + q.img + '" alt="' + q.alt + '"></figure>'
         + "</div>"
-        + '<footer class="pull-footer"><span>' + num + " of " + last + "</span></footer></section>"
+        + '<footer class="pull-footer"><span class="ember-reveal folio">' + num + " of " + last + "</span></footer></section>"
         + '<div class="divider" aria-hidden="true"><span class="diamond"></span></div>';
     });
     document.getElementById("quests").innerHTML = html;
@@ -139,8 +139,9 @@
 
   /* ---------- Procedural sound + music: zero files ----------
      ADR-0013 rev 2 (user: the drone read as "a random low frequency
-     hum"): the kindle button now lights a generative mystic harp —
-     Karplus-Strong plucked strings, slow D-dorian phrases, generated-
+     hum"): the kindle button now lights a generative WESTERN medieval
+     harp — Karplus-Strong plucked strings, diatonic D-dorian phrases in
+     two-voice organum (round 5: pentatonic read as East Asian), generated-
      impulse reverb — over a quiet fire hiss. Interaction SFX (deep
      two-layer thud, low-passed unroll sweep, granular crackle) are
      unchanged. Still 100% procedural, gesture-gated, kindle-gated
@@ -193,11 +194,19 @@
     return cv;
   };
   Engine.prototype.noiseBuffer = function (dur) {
+    /* Cached per rounded duration: the unroll sweep asks for 2.4s of
+       samples on the drop-start frame — allocating ~0.5MB and 115k
+       Math.random calls there is a visible one-frame stall (user: "the
+       intro still hangs"). The ambience shares the 2.4s buffer. */
     var c = this.ctx;
+    var ms = Math.round(dur * 1000);
+    this._noise = this._noise || {};
+    if (this._noise[ms]) return this._noise[ms];
     var len = Math.floor(c.sampleRate * dur);
     var buf = c.createBuffer(1, len, c.sampleRate);
     var d = buf.getChannelData(0);
     for (var i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    this._noise[ms] = buf;
     return buf;
   };
   /* ---------- Music: mystic harp, zero files (ADR-0013 rev 2) ----------
@@ -270,11 +279,12 @@
   Engine.prototype.kindleMusic = function () {
     if (this._harpTimer) { this._musicOn = true; return; }
     var c = this.ctx;
-    /* Harp bus: gentle lowpass keeps the plucks woody, reverb sends out. */
+    /* Harp bus: gentle lowpass keeps the plucks woody (3100 — gut-string
+       dark, not bright celtic), reverb sends out. */
     var f = c.createBiquadFilter();
     f.type = "lowpass";
-    f.frequency.value = 3400;
-    f.Q.value = 0.4;
+    f.frequency.value = 3100;
+    f.Q.value = 0.5;
     var g = c.createGain();
     g.gain.value = 0.5;
     f.connect(g);
@@ -309,43 +319,46 @@
       ambLfo.start();
       this._amb = { src: amb, lfo: ambLfo };
     }
-    /* Phrase generator: a slow random walk over D dorian. Phrases arc,
-       cadence toward the root, breathe between — nothing loops audibly. */
-    var SCALE = [146.83, 174.61, 196.0, 220.0, 261.63, 293.66, 349.23, 392.0, 440.0, 587.33];
+    /* Phrase engine v4 (ADR-0014): the composed tune (user round 5b —
+       G mixolydian, A-A'-B-cadence form, 6/8 lilt pairs, parallel-fourth
+       organum riding every note, close on the low final with the fifth
+       under it) is the accepted baseline; pitches, form, lilt and organum
+       untouched. v4 adds performance practice only: a per-phrase dynamic
+       contour (the B phrase lifts, the cadence settles) and a ~18%
+       ritardando into the
+       close, so the form arches and breathes instead of sitting flat. */
+    var SCALE = [146.83, 196.0, 220.0, 246.94, 261.63, 293.66, 329.63,
+      349.23, 392.0, 440.0, 493.88, 523.25, 587.33];
     var that = this;
     this._musicOn = true;
     var next = c.currentTime + 0.4;
-    var idx = 4, dir = 1;
-    var notesLeft = 7 + Math.floor(Math.random() * 6);
-    var notesTotal = notesLeft;
+    /* [scaleIndex, lilt] — lilt 0 = long (dotted), 1 = short (quaver). */
+    var PHRASE_A = [[5, 0], [8, 1], [10, 0], [9, 1], [8, 0], [9, 1], [10, 0], [8, 1]];
+    var PHRASE_A2 = [[5, 0], [8, 1], [10, 0], [9, 1], [8, 0], [6, 1], [5, 0], [1, 1]];
+    var PHRASE_B = [[8, 0], [9, 1], [11, 0], [9, 1], [8, 0], [6, 1], [7, 0], [6, 1]];
+    var PHRASE_CAD = [[5, 0], [3, 1], [4, 0], [3, 1], [2, 1], [1, 0]];
+    var FORM = [PHRASE_A, PHRASE_A2, PHRASE_B, PHRASE_CAD];
+    var DYN = [0.85, 0.9, 1.12, 0.9];
+    var formIdx = 0;
     (function step() {
       if (!that._musicOn) { that._harpTimer = null; return; }
       while (next < that.ctx.currentTime + 1.3) {
-        var vel = 0.2 + Math.random() * 0.26;
-        var head = notesLeft === notesTotal;
-        var cadence = notesLeft === 1;
-        that.pluck(SCALE[idx], next, vel, head);
-        /* Occasional dyad below — the harp's two-hand spread. */
-        if (Math.random() < 0.16 && idx >= 2) {
-          that.pluck(SCALE[idx - 2], next + 0.016, vel * 0.5, false);
+        var phrase = FORM[formIdx];
+        var rit = formIdx === 3 ? 1.18 : 1;
+        var t = next;
+        for (var k = 0; k < phrase.length; k++) {
+          var long = phrase[k][1] === 0;
+          var idx = phrase[k][0];
+          var vel = (0.22 + Math.random() * 0.16) * (long ? 1 : 0.82) * DYN[formIdx];
+          that.pluck(SCALE[idx], t, vel, k === 0);
+          /* Organum fourth below; the final also gets the low fifth. */
+          if (idx - 4 >= 0) that.pluck(SCALE[idx - 4], t + 0.012, vel * 0.38, false);
+          else that.pluck(SCALE[0], t + 0.012, vel * 0.3, false);
+          t += (long ? 0.40 + Math.random() * 0.05 : 0.20 + Math.random() * 0.03) * rit;
         }
-        /* Low root under the phrase's last note. */
-        if (cadence && Math.random() < 0.55) {
-          that.pluck(SCALE[0] / 2, next, 0.22, false);
-        }
-        notesLeft--;
-        if (notesLeft <= 0) {
-          notesTotal = 7 + Math.floor(Math.random() * 6);
-          notesLeft = notesTotal;
-          idx = Math.random() < 0.4 ? 0 : 2 + Math.floor(Math.random() * 4);
-          next += 1.1 + Math.random() * 1.3; /* breathe between phrases */
-        } else {
-          var leap = Math.random() < 0.78 ? 1 : 2;
-          idx += (Math.random() < 0.82 ? dir : -dir) * leap;
-          if (idx >= SCALE.length) { idx = SCALE.length - 2; dir = -1; }
-          if (idx < 0) { idx = 1; dir = 1; }
-          next += 0.3 + Math.random() * 0.26;
-        }
+        formIdx = (formIdx + 1) % FORM.length;
+        /* Breathe: generous after the cadence, brief between phrases. */
+        next = t + (formIdx === 0 ? 1.6 + Math.random() * 0.9 : 0.5 + Math.random() * 0.3);
       }
       that._harpTimer = setTimeout(step, 280);
     })();
@@ -467,19 +480,22 @@
 
   var engine = new Engine();
   var kindleOn = false;
-  var lastPullSound = 0, lastCrackle = 0;
+  var lastSweep = 0, lastCrackle = 0;
 
   function soundOn() {
     return kindleOn && engine.ctx && engine.ctx.state === "running";
   }
-  function pullSound() {
+  /* Ignition sweep: the low paper-rush rides the TEXT reveal (user round
+     6: the whoosh reads as flame, so it belongs to the charred ignite). */
+  function sweepMaybe() {
     var now = Date.now();
-    if (soundOn() && now - lastPullSound > 900) {
-      lastPullSound = now;
-      engine.unroll(0.6);
+    if (soundOn() && now - lastSweep > 900) {
+      lastSweep = now;
+      engine.unroll(0.55);
     }
   }
-  /* Crackle bed under charred reveals (throttled across elements). */
+  /* Crackle bed: dry paper pops ride the SCROLL MOVEMENT — they fire at
+     the pull crossing, not at the ignition (user round 6 swap). */
   function crackleMaybe() {
     var now = Date.now();
     if (soundOn() && now - lastCrackle > 500) {
@@ -615,7 +631,11 @@
         var sp = document.createElement("span");
         sp.className = "ch";
         sp.textContent = chr;
-        var d = Math.round(idx * 14 + Math.random() * 36);
+        /* Folios ("I of IV") ignite tighter than body text so the little
+           counter reads as part of the page lighting, not a second show. */
+        var d = el.classList.contains("folio")
+          ? Math.round(idx * 8 + Math.random() * 20)
+          : Math.round(idx * 14 + Math.random() * 36);
         /* Appear fast; color/shadow cool starts later, runs 400ms. */
         sp.style.transitionDelay =
           d + "ms," + d + "ms," + d + "ms," + (d + 230) + "ms," + (d + 230) + "ms";
@@ -648,7 +668,7 @@
     el.classList.add("revealed");
     var n = el.querySelectorAll(".ch").length || 1;
     sparkAt(el, Math.min(22, 8 + Math.round(n / 6)));
-    crackleMaybe();
+    sweepMaybe();
     /* Next frame: flip to ignite so the per-char transitions run. */
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
@@ -677,7 +697,7 @@
       return;
     }
     sparkAt(el, 18);
-    crackleMaybe();
+    sweepMaybe();
     var line = document.createElement("span");
     line.className = "char-line";
     line.setAttribute("aria-hidden", "true");
@@ -718,11 +738,23 @@
      reveals must be SEEN, never pre-fired under the 3D layer.
      Zone defer: reveals don't play while a desk zone owns the screen;
      they flush the moment the 2D column is visible again.
+     Settle (user round 5): nothing plays while the scroll is MOVING, and
+     nothing resets to hidden while it is on screen — mid-scroll the
+     triggers only QUEUE; when motion stops (80ms quiet) a 60ms beat
+     passes, then the panel lights up and the text ignites. The ignition
+     sweep rides the reveal; the paper crackle rides the pull crossing
+     (user round 6: the two sounds sat on each other's actions).
      Cooldown: rapid boundary jitter can't machine-gun replays. */
   var revealsOpen = !window.gsap; /* no-gsap page shows everything anyway */
   var pendingGate = [];
   var pendingZone = [];
+  var pendingSettle = [];
   var lastPlay = new WeakMap();
+  var SETTLE_MS = 80;
+  var REVEAL_BEAT = 60;
+  var settled = true;
+  var settleTimer = 0;
+  var beatTimer = 0;
   function seenRecently(el) {
     var now = performance.now();
     if (now - (lastPlay.get(el) || 0) < 900) return true;
@@ -739,9 +771,48 @@
     if (y + window.innerHeight * 0.85 >= zb.offsetTop) return true;
     return false;
   }
+  function inView(el) {
+    var r = el.getBoundingClientRect();
+    return r.top < window.innerHeight && r.bottom > 0;
+  }
+  /* Substantially on screen — the flush threshold. A merely-grazed
+     element (sliver at the edge) must not START a replay: its vanish-
+     and-replay is the exact sloppiness this gate exists to kill. */
+  function strongView(el) {
+    var r = el.getBoundingClientRect();
+    var vh = window.innerHeight;
+    return r.top < vh * 0.92 && r.bottom > vh * 0.08;
+  }
+  /* Scroll motion: any scroll event marks us moving; 140ms of quiet
+     marks us settled. CAPTURE phase on purpose — ScrollTrigger's own
+     scroll handler (CDN script, registered earlier) fires in the bubble
+     phase, and its onEnter/onEnterBack call requestReveal synchronously;
+     without the capture-phase stamp the gate reads a stale `settled`
+     and plays mid-scroll (verified via stack trace, round 5). A resumed
+     scroll cancels the pending beat — the 125ms wait always starts from
+     the LAST motion, never overlaps it. */
+  window.addEventListener("scroll", function () {
+    settled = false;
+    clearTimeout(settleTimer);
+    clearTimeout(beatTimer);
+    beatTimer = 0;
+    settleTimer = setTimeout(function () {
+      settled = true;
+      flushSettle();
+    }, SETTLE_MS);
+  }, { passive: true, capture: true });
+  function settlePush(el, fn) {
+    for (var i = 0; i < pendingSettle.length; i++) {
+      if (pendingSettle[i].el === el) return;
+    }
+    pendingSettle.push({ el: el, fn: fn });
+  }
   function requestReveal(el, fn) {
     if (!revealsOpen) { if (pendingGate.indexOf(el) < 0) pendingGate.push(el); return; }
     if (inDeskZone()) { if (pendingZone.indexOf(el) < 0) pendingZone.push(el); return; }
+    /* A pending beat counts as motion: the batch it belongs to must not
+       be overtaken by a stray later trigger. */
+    if (!settled || beatTimer) { settlePush(el, fn); return; }
     playNow(el, fn);
   }
   /* Single play path: dequeues the element everywhere, then honors the
@@ -752,34 +823,108 @@
     if (gi >= 0) pendingGate.splice(gi, 1);
     var zi = pendingZone.indexOf(el);
     if (zi >= 0) pendingZone.splice(zi, 1);
+    for (var i = 0; i < pendingSettle.length; i++) {
+      if (pendingSettle[i].el === el) { pendingSettle.splice(i, 1); break; }
+    }
+    /* Already-lit skip (user round 6 #4): ST re-fires onEnter when a desk
+       zone hands the page back, but the hero never reset — it stayed in
+       view (under the opaque 3D layer) the whole dwell. Replaying there
+       is the "contents appear, then the animation plays" flash. Real
+       replays still work: a panel that fully exits is reset by panelIO,
+       which clears .revealed/.on before the element is seen again. */
+    if (el.classList.contains("revealed") || el.classList.contains("on")) return;
     if (seenRecently(el)) return;
     fn(el);
   }
-  function inView(el) {
-    var r = el.getBoundingClientRect();
-    return r.top < window.innerHeight && r.bottom > 0;
+  /* Reset a replayable element to hidden. ONLY called while it is fully
+     off-screen (resetIfHidden) — resetting on-screen content is the
+     "contents disappear then animate" sloppiness (user round 5 #6). */
+  function resetReveal(el) {
+    if (el.classList.contains("ink-reveal")) {
+      if (!el.classList.contains("revealed")) return;
+      el.classList.add("rearm");
+      el.classList.remove("revealed", "framed");
+      void el.offsetWidth;
+      el.classList.remove("rearm");
+      var stale = el.querySelectorAll(".char-line, .burn-frame");
+      for (var i = 0; i < stale.length; i++) stale[i].remove();
+    } else if (el.classList.contains("draw-reveal")) {
+      el.classList.remove("on");
+    } else {
+      if (!el.classList.contains("revealed")) return;
+      if (el.dataset.split) {
+        el.classList.add("rearm");
+        el.classList.remove("revealed", "ignited", "cooled");
+        void el.offsetWidth;
+        el.classList.remove("rearm");
+      } else {
+        el.classList.remove("revealed");
+      }
+    }
+  }
+  function resetIfHidden(el) {
+    /* Desk dwell (user round 6 #4): while a 3D zone owns the screen the
+       column is hidden under the opaque layer, and the panels parked
+       there (hero above, contact below) read as "exited" to the IOs —
+       resetting them replayed their ignition on the way back down (the
+       "contents appear, then the animation plays" flash, recording
+       13-34-01 @ ~28-35s and ~50-53s). Skip: they stay lit through the
+       dwell, and playNow's already-lit guard keeps the ST re-fires from
+       replaying them. Normal navigation resets are untouched — exits
+       between panels happen outside the zones. */
+    if (inDeskZone()) return;
+    if (!inView(el)) resetReveal(el);
+  }
+  function pickFn(el) {
+    return el.classList.contains("ink-reveal") ? inkOn
+      : el.classList.contains("draw-reveal") ? drawOn : emberOn;
+  }
+  /* The settle flush: 125ms after motion stops, the batch plays with a
+     small stagger, and every panel the batch touches lights up first. */
+  function flushSettle() {
+    if (!settled || !revealsOpen) return;
+    if (!pendingSettle.length || beatTimer) return;
+    beatTimer = setTimeout(function () {
+      beatTimer = 0;
+      if (!settled || !revealsOpen || !pendingSettle.length) return;
+      var batch = pendingSettle.filter(function (item) { return strongView(item.el); });
+      pendingSettle = pendingSettle.filter(function (item) {
+        return batch.indexOf(item) < 0;
+      });
+      batch.forEach(function (item, i) {
+        var panel = item.el.closest(".pull, #hero");
+        if (panel) panel.classList.add("lit");
+        setTimeout(function () { playNow(item.el, item.fn); }, i * 50);
+      });
+    }, REVEAL_BEAT);
   }
   function openReveals() {
     if (revealsOpen) return;
     revealsOpen = true;
-    /* Stagger the landing batch so the ignition sweeps, not pops. */
-    var batch = pendingGate.filter(inView);
-    batch.forEach(function (el, i) {
-      var fn = el.classList.contains("ink-reveal") ? inkOn
-        : el.classList.contains("draw-reveal") ? drawOn : emberOn;
-      setTimeout(function () { playNow(el, fn); }, 120 + i * 110);
+    /* The handoff batch plays IMMEDIATELY, not through the settle beat:
+       the handoff is a programmatic moment (scene.js holds the sheet up
+       for 260ms so this ignition runs UNDER it — crossfade, not swap).
+       During the intro the hero's requests queued in pendingZone (y=0 is
+       inside the top zone), so the zone queue drains here too — leaving
+       it to the post-handoff scroll event would make the crossfade beat
+       depend on event timing. */
+    var handoff = pendingGate.concat(pendingZone.splice(0, pendingZone.length));
+    handoff.forEach(function (el, i) {
+      if (inDeskZone()) {
+        if (pendingZone.indexOf(el) < 0) pendingZone.push(el);
+        return;
+      }
+      var panel = el.closest(".pull, #hero");
+      if (panel) panel.classList.add("lit");
+      setTimeout(function () { playNow(el, pickFn(el)); }, 60 + i * 70);
     });
     pendingGate.length = 0;
   }
   function flushZonePending() {
     if (inDeskZone() || !revealsOpen) return;
-    var batch = pendingZone.filter(inView);
-    batch.forEach(function (el, i) {
-      var fn = el.classList.contains("ink-reveal") ? inkOn
-        : el.classList.contains("draw-reveal") ? drawOn : emberOn;
-      setTimeout(function () { playNow(el, fn); }, 60 + i * 110);
-    });
+    pendingZone.forEach(function (el) { settlePush(el, pickFn(el)); });
     pendingZone.length = 0;
+    flushSettle();
   }
   window.addEventListener("tapestry:handoff", openReveals);
   window.addEventListener("scroll", function () {
@@ -894,6 +1039,7 @@
           marks.push(((t - col.offsetTop) / Math.max(1, col.scrollHeight)) * h);
         });
         var c = window.Parchment.base(w, h, { seed: 7, marks: marks });
+        col.dataset.bgH = String(h);
         c.toBlob(function (blob) {
           if (!blob) return;
           /* Revoke the previous bake so successive layouts don't leak. */
@@ -912,6 +1058,15 @@
 
   /* ---------- Boot ---------- */
   renderQuests();
+  /* The column bake is a ~300-700ms SYNCHRONOUS paint (768×up-to-4096
+     grain). At boot it hides behind the loader; it used to ride the
+     window load event instead, which on a slow font/CDN tick lands
+     MID-INTRO and freezes the whole 3D animation — the user's "major
+     hang mid animation once the scroll starts rolling down" (recording
+     13-34-01 @ 11.92-12.67s: the sheet froze at ~60% unrolled; live
+     probe: 319ms rAF gap exactly at drop-land). Boot it here; the load
+     listener below only re-bakes on a real layout change. */
+  textureColumn();
 
   /* ---------- Loader: gated, bounded (ADR-0002 revision) ----------
      The 3D scene reports "3d-ready" only after the sheet bake, a full
@@ -962,7 +1117,28 @@
       }
     }, 15000);
   }
-  window.addEventListener("load", function () { textureColumn(); });
+  window.addEventListener("load", function () {
+    /* Re-bake only if the column's aspect changed since the boot bake
+       (late images shifting layout). A re-bake is the same 300-700ms
+       synchronous paint — mid-intro it freezes the unroll, so if the
+       intro is still in flight it defers to handoff + 1.6s (the ignite
+       churn has settled by then). */
+    var col = document.querySelector(".column");
+    if (!col) return;
+    var hadH = parseInt(col.dataset.bgH || "0", 10);
+    if (hadH) {
+      var wantH = Math.min(4096, Math.max(1024,
+        Math.round(col.scrollHeight * 768 / Math.max(1, col.clientWidth))));
+      if (Math.abs(wantH - hadH) <= hadH * 0.02) return;
+    }
+    if (window.__INTRO_STATE && window.__INTRO_STATE !== "handoff-done") {
+      window.addEventListener("tapestry:handoff", function () {
+        setTimeout(textureColumn, 1600);
+      }, { once: true });
+    } else {
+      textureColumn();
+    }
+  });
 
   initKindle();
   /* First gesture unlocks the context (silent until kindle kindles).
@@ -980,10 +1156,12 @@
   });
 
   /* Ink reveal sketches: replay on every (re)entry — no unobserve, the
-     scheduler's cooldown absorbs boundary jitter. */
+     scheduler's cooldown absorbs boundary jitter. Exits pre-reset while
+     off-screen (resetIfHidden guards the sliver-visible case). */
   var inkIO = new IntersectionObserver(function (entries) {
     entries.forEach(function (e) {
       if (e.isIntersecting) requestReveal(e.target, inkOn);
+      else resetIfHidden(e.target);
     });
   }, { threshold: 0.25 });
   document.querySelectorAll(".ink-reveal").forEach(function (el) { inkIO.observe(el); });
@@ -991,9 +1169,24 @@
   var drawIO = new IntersectionObserver(function (entries) {
     entries.forEach(function (e) {
       if (e.isIntersecting) requestReveal(e.target, drawOn);
+      else resetIfHidden(e.target);
     });
   }, { threshold: 0.3 });
   document.querySelectorAll(".draw-reveal").forEach(function (el) { drawIO.observe(el); });
+  /* Panel-level reset: when a whole pull leaves the viewport, reset EVERY
+     reveal inside it. The per-element exits miss partially-visible ones
+     (their trigger line is still crossed), which left some elements lit
+     while their neighbors replayed on revisit — the "some elements appear
+     before animations start" inconsistency (user recording, round 5c).
+     A fully-off-screen panel guarantees every reset is invisible. */
+  var panelIO = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) return;
+      e.target.querySelectorAll(".ember-reveal, .ink-reveal, .draw-reveal")
+        .forEach(resetIfHidden);
+    });
+  }, { threshold: 0 });
+  document.querySelectorAll(".pull").forEach(function (p) { panelIO.observe(p); });
 
   /* Rebuild hook for the failsafes below — assigned inside the gsap
      block; a no-op wherever GSAP/ST is absent. */
@@ -1020,12 +1213,16 @@
       function buildRevealTriggers() {
         /* Ember text reveals: replay on every entry from either direction
            (ADR-0011 addendum); end line marks "fully seen" so onEnterBack
-           re-fires only after a real exit. */
+           re-fires only after a real exit. Exits pre-reset the element to
+           hidden while it is off-screen, so a revisit never shows old
+           content vanishing before the replay (user round 5 #6). */
         gsap.utils.toArray(".ember-reveal").forEach(function (el) {
           var t = ScrollTrigger.create({
             trigger: el, start: "top 88%", end: "bottom 15%",
             onEnter: function () { requestReveal(el, emberOn); },
-            onEnterBack: function () { requestReveal(el, emberOn); }
+            onEnterBack: function () { requestReveal(el, emberOn); },
+            onLeave: function () { resetIfHidden(el); },
+            onLeaveBack: function () { resetIfHidden(el); }
           });
           stKills.push(function () { t.kill(); });
         });
@@ -1063,12 +1260,13 @@
           });
           stKills.push(function () { t.kill(); });
         });
-        /* Pull-change friction, quest pulls onward. */
+        /* Page crackle as the scroll physically moves to the next pull
+           (user round 6: the dry pops ARE the scroll-movement sound). */
         gsap.utils.toArray(".pull").forEach(function (p, idx) {
           if (idx === 0) return;
           var t = ScrollTrigger.create({
             trigger: p, start: "top 60%",
-            onEnter: pullSound, onEnterBack: pullSound
+            onEnter: crackleMaybe, onEnterBack: crackleMaybe
           });
           stKills.push(function () { t.kill(); });
         });
@@ -1099,10 +1297,23 @@
     document.documentElement.classList.add("no-gsap");
   }
   /* Re-measure triggers once webfonts land (layout shifts otherwise) —
-     via rebuild: refresh() corrupts ranges in this stack (see above). */
+     via rebuild: refresh() corrupts ranges in this stack (see above).
+     The rebuild is a kill+recreate of every trigger with DOM measuring —
+     a ~250-750ms synchronous task. Fonts resolve whenever the CDN
+     delivers, which on a slow tick lands MID-INTRO and freezes the whole
+     3D animation (recording 13-34-01: the sheet froze at ~60% unrolled;
+     live probe: a 301ms longtask at drop-start+243ms). Nothing scrolls
+     during the intro, so the rebuild defers to the handoff — the landing
+     evaluates on the next ST tick with correct ranges. */
   if (document.fonts && document.fonts.ready) {
     document.fonts.ready.then(function () {
-      rebuildReveals();
+      if (!window.__INTRO_STATE || window.__INTRO_STATE === "handoff-done") {
+        rebuildReveals();
+      } else {
+        window.addEventListener("tapestry:handoff", function () {
+          rebuildReveals();
+        }, { once: true });
+      }
     });
   }
   /* Failsafe: reveal-all ONLY when the page cannot scroll (non-scrolling

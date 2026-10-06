@@ -82,11 +82,15 @@ html {
 .desk-zone { position: relative; width: 100%; }
 /* The wide desk at page top is a legitimate resting point, mirroring the
    end desk — an anchor here keeps End/Home-style jumps and proximity
-   settles honest, and gives the top band one honest snap target. */
-#zone-top { height: 150svh; scroll-snap-align: start; }
+   settles honest, and gives the top band one honest snap target.
+   Round 5b: 70svh -> 45svh — at 70 a flick still rested mid-zone showing
+   the half-faded "in-between state"; at 45svh (405px) ONE flick crosses
+   into mandatory snap in either direction (bottom band starts 270px
+   above full bottom). The camera scrub compresses with the zone. */
+#zone-top { height: 45svh; scroll-snap-align: start; }
 /* The end desk is a legitimate resting point: snap can anchor here, so
    an instant jump (End key, deep restore) settles on the wide view. */
-#zone-bottom { height: 150svh; scroll-snap-align: end; }
+#zone-bottom { height: 45svh; scroll-snap-align: end; }
 /* The cue pulses on an inner span so scene.js can fade the parent's
    opacity directly — a CSS animation on the parent would override it. */
 .zone-cue {
@@ -111,7 +115,7 @@ html {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  width: min(74vw, 660px);
+  width: min(58vw, 520px);
   color: var(--parchment-light);
   opacity: 0.34;
   pointer-events: none;
@@ -120,8 +124,11 @@ html {
   stroke: currentColor;
   fill: none;
 }
-.band-art-top { bottom: 20svh; }
-.band-art-bottom { top: 24svh; }
+/* Anchored to the fade windows of the 45svh zones: the top art sits in
+   the last stretch of the top zone (revealed while the 3D fades out from
+   55%), the bottom art at the very start of the bottom zone. */
+.band-art-top { bottom: 2svh; }
+.band-art-bottom { top: -2svh; }
 
 /* ---------- 3D desk scene overlay: opacity is scrubbed by scene.js
    (intro + desk zones), never CSS-transitioned. Pointer events are owned
@@ -267,6 +274,16 @@ html.no-gsap .cap-sigil text { opacity: 1; transition: none; }
   min-height: 100svh; padding: 56px 0; position: relative;
   display: flex; flex-direction: column; justify-content: center;
   scroll-snap-align: start;
+  /* Panel light-up (user round 5 #4/A3): the parchment card "catches the
+     candlelight" a beat after landing — a soft warm inner glow that
+     rises once (added .lit by the settle flush in app.js) and stays.
+     Kept faint: it should read as light arriving, not an effect. */
+  transition: box-shadow 900ms ease;
+}
+.pull.lit {
+  box-shadow:
+    inset 0 26px 60px -18px rgba(255, 176, 96, 0.14),
+    inset 0 -18px 70px -20px rgba(255, 150, 60, 0.08);
 }
 /* Hero keeps one full screen so the scroll cue sits at its foot. */
 #hero { display: flex; flex-direction: column; justify-content: center; }
@@ -303,6 +320,19 @@ html.no-gsap .cap-sigil text { opacity: 1; transition: none; }
 .tale-label { font-weight: 500; }
 .runes { list-style: none; display: flex; gap: 10px; padding: 0; flex-wrap: wrap; }
 .runes li { font-size: 14px; border: 1px solid var(--ink); border-radius: 999px; padding: 4px 14px; }
+/* Chips are element children — splitChars can't give them per-char
+   ignition, so they popped in fully-formed mid-animation (user round 5b:
+   "elements appear before animations start"). They fade-rise as a
+   staggered row when their reveal plays. */
+.runes.revealed li { animation: rune-in 340ms ease both; }
+.runes.revealed li:nth-child(2) { animation-delay: 90ms; }
+.runes.revealed li:nth-child(3) { animation-delay: 180ms; }
+.runes.revealed li:nth-child(4) { animation-delay: 270ms; }
+@keyframes rune-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+html.no-gsap .runes li, .runes.rearm li { animation: none; }
 .ways { list-style: none; padding-left: 0; }
 .ways li { position: relative; padding-left: 22px; }
 .ways li::before {
@@ -552,7 +582,7 @@ html.no-gsap .cap-sigil text { opacity: 1; transition: none; }
   .ember-reveal.revealed, .ink-reveal.revealed { transition: none; }
   .ink-reveal img { clip-path: none; filter: grayscale(1) contrast(1.06); transition: none; }
   .char-line, .burn-frame, #embers { display: none; }
-  .scroll-cue, .scroll-cue-inner, .loader-sigil, .candle .flame, .zone-cue-inner, .char-line, #kindle { animation: none; }
+  .scroll-cue, .scroll-cue-inner, .loader-sigil, .candle .flame, .zone-cue-inner, .char-line, #kindle, .runes li { animation: none; }
   #grain { animation: none; }
   #loader { transition: none; }
   .cap-sigil circle, .cap-sigil path { stroke-dashoffset: 0; transition: none; }

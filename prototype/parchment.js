@@ -114,6 +114,55 @@
       g.stroke();
     }
 
+    /* Aged edges (user round 5 #8; intensified round 5b "increase age"):
+       banded browning hugging the rim, corner blooms, and fine wear
+       flecks along the borders — the patina of a handled sheet. opts.age
+       scales it (0 off, default 1). All one-time canvas paint: the bake
+       runs at load, and the runtime GPU cost is ZERO (same texture,
+       same shader, already uploaded). */
+    var age = opts.age === undefined ? 1 : opts.age;
+    if (age > 0) {
+      var band = Math.max(14, w * 0.065);
+      var bandGrad = function (x0, y0, x1, y1, a) {
+        var bg = g.createLinearGradient(x0, y0, x1, y1);
+        bg.addColorStop(0, "rgba(92,58,20," + (a * age).toFixed(3) + ")");
+        bg.addColorStop(0.55, "rgba(92,58,20," + (a * age * 0.45).toFixed(3) + ")");
+        bg.addColorStop(1, "rgba(92,58,20,0)");
+        return bg;
+      };
+      var bw = band * 1.9;
+      g.fillStyle = bandGrad(0, 0, bw, 0, 0.3); g.fillRect(0, 0, bw, h);
+      g.fillStyle = bandGrad(w, 0, w - bw, 0, 0.3); g.fillRect(w - bw, 0, bw, h);
+      g.fillStyle = bandGrad(0, 0, 0, bw * 0.9, 0.26); g.fillRect(0, 0, w, bw * 0.9);
+      g.fillStyle = bandGrad(0, h, 0, h - bw * 0.9, 0.26); g.fillRect(0, h - bw * 0.9, w, bw * 0.9);
+      /* Corner blooms: the classic browned page corners. */
+      var cr = Math.max(48, w * 0.19);
+      [[0, 0], [w, 0], [0, h], [w, h]].forEach(function (cn) {
+        var cg = g.createRadialGradient(cn[0], cn[1], 0, cn[0], cn[1], cr);
+        cg.addColorStop(0, "rgba(80,48,16," + (0.44 * age).toFixed(3) + ")");
+        cg.addColorStop(0.5, "rgba(80,48,16," + (0.18 * age).toFixed(3) + ")");
+        cg.addColorStop(1, "rgba(80,48,16,0)");
+        g.fillStyle = cg;
+        g.beginPath(); g.arc(cn[0], cn[1], cr, 0, 6.283); g.fill();
+      });
+      /* Wear flecks: tiny light/dark nicks scattered along the rim,
+         denser the closer they sit to the edge (handling wear). */
+      var per = 2 * (w + h);
+      var flecks = Math.round(per * 0.8 * age);
+      for (var f2 = 0; f2 < flecks; f2++) {
+        var pp = rnd() * per, fx, fy, jitter = rnd() * band;
+        if (pp < w) { fx = pp; fy = jitter; }
+        else if (pp < w + h) { fx = w - jitter; fy = pp - w; }
+        else if (pp < 2 * w + h) { fx = pp - w - h; fy = h - jitter; }
+        else { fx = jitter; fy = pp - 2 * w - h; }
+        var da = 0.06 + rnd() * 0.14 * (1 - jitter / band);
+        g.fillStyle = rnd() < 0.62
+          ? "rgba(64,40,16," + da.toFixed(3) + ")"
+          : "rgba(240,224,188," + (da * 0.9).toFixed(3) + ")";
+        g.fillRect(fx, fy, 0.8 + rnd() * 1.8, 0.8 + rnd() * 1.3);
+      }
+    }
+
     /* Scorch marks: small charred blooms (divider anchors passed in). */
     (opts.marks || []).forEach(function (my) {
       var mx = w * (0.12 + rnd() * 0.76);
