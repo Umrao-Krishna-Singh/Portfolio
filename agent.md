@@ -19,9 +19,10 @@
 
 ## Core Rules
 
-### 1. Git Commit Policy
+### 1. Git & Repo Policy
 - **NEVER run `git commit` without explicit user permission.**
 - All Git commits must be explicitly requested or approved by the user before executing.
+- **Before any write operation, always verify it targets the correct repo.**
 
 ### 2. Dependency & Supply Chain Security Policy
 - **NEVER install new packages, libraries, tools, or dependencies without explicit user permission.**
