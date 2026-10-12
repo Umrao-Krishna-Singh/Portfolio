@@ -137,15 +137,15 @@
     if (f) f.textContent = text;
   }
 
-  /* ---------- Procedural sound + music: zero files ----------
-     ADR-0013 rev 2 (user: the drone read as "a random low frequency
-     hum"): the kindle button now lights a generative WESTERN medieval
-     harp — Karplus-Strong plucked strings, diatonic D-dorian phrases in
-     two-voice organum (round 5: pentatonic read as East Asian), generated-
-     impulse reverb — over a quiet fire hiss. Interaction SFX (deep
-     two-layer thud, low-passed unroll sweep, granular crackle) are
-     unchanged. Still 100% procedural, gesture-gated, kindle-gated
-     (ADR-0001/0002). */
+  /* ---------- Procedural SFX + kindled music ----------
+     Interaction SFX (deep two-layer thud, low-passed unroll sweep,
+     granular crackle) stay 100% procedural, zero files (ADR-0001).
+     The KINDLED MUSIC is now RandomMind's The Bard's Tale v3 Opus (CC0,
+     owner pick 2026-10-06): fetched + decoded at the kindle click — zero
+     bytes before the gesture (ADR-0002) — looping end-to-start; the 2.2s
+     lead-in silence is an accepted part of each cycle (owner decision,
+     issue #18). The ADR-0014 generative harp remains as the offline
+     fallback if fetch/decode fails. Kindle-gated (ADR-0002). */
   function Engine() {
     this.ctx = null;
     this.master = null;
@@ -277,6 +277,57 @@
     }
   };
   Engine.prototype.kindleMusic = function () {
+    /* Dispatcher: the Bard's Tale track is the kindled music; the
+       generative harp is the fallback. Re-kindling mid-fetch must not
+       double-fetch (guard) and must not start after an unkindle (the
+       decode continuation re-checks _musicOn). */
+    this._musicOn = true;
+    if (this._trackSrc) return;
+    if (this._trackBuf) { this.startTrack(); return; }
+    if (this._trackLoading || this._trackFailed) { this.kindleHarp(); return; }
+    var that = this;
+    this._trackLoading = true;
+    fetch("../.tmp/pen-runs/assets/The_Bards_Tale_v3.opus")
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.arrayBuffer(); })
+      .then(function (ab) { return that.ctx.decodeAudioData(ab); })
+      .then(function (buf) {
+        that._trackLoading = false;
+        if (!that._musicOn) return;
+        that._trackBuf = buf;
+        /* A re-kindle during the fetch started the harp fallback: retire
+           it (timer, hiss bed, bus) before the track joins, or both
+           would play at once. */
+        if (that.harpBus) {
+          if (that._harpTimer) { clearTimeout(that._harpTimer); that._harpTimer = null; }
+          if (that._amb) {
+            try { that._amb.src.stop(); that._amb.lfo.stop(); } catch (e) {}
+            that._amb = null;
+          }
+          try { that.harpBus.disconnect(); } catch (e) {}
+          that.harpBus = null;
+        }
+        that.startTrack();
+      })
+      .catch(function () {
+        that._trackLoading = false;
+        that._trackFailed = true;
+        if (that._musicOn) that.kindleHarp();
+      });
+  };
+  Engine.prototype.startTrack = function () {
+    if (this._trackSrc || !this._trackBuf) return;
+    var c = this.ctx;
+    var src = c.createBufferSource();
+    src.buffer = this._trackBuf;
+    src.loop = true; /* whole buffer wraps: end → start, lead-in included */
+    var g = c.createGain();
+    g.gain.value = 0.85;
+    src.connect(g);
+    g.connect(this.master);
+    src.start();
+    this._trackSrc = src;
+  };
+  Engine.prototype.kindleHarp = function () {
     if (this._harpTimer) { this._musicOn = true; return; }
     var c = this.ctx;
     /* Harp bus: gentle lowpass keeps the plucks woody (3100 — gut-string
@@ -365,8 +416,14 @@
   };
   Engine.prototype.silenceMusic = function () {
     this._musicOn = false;
-    /* Stop the hiss chain too — master gain alone would leave it running
-       and every re-kindle would stack another (critic P2). */
+    /* Mute semantics (owner, #20: the kindle toggle must never restart
+       the tune): the Bard's Tale source keeps playing UNDER the
+       master-gain fade — re-kindling fades back in MID-TUNE instead of
+       paying the accepted 2.2s lead-in again. startTrack's _trackSrc
+       guard still means a re-kindle can never stack a second source.
+       The generative harp (phrase timer checks _musicOn) and the
+       fire-hiss bed keep their stop/restart behavior — a generative
+       restart doesn't read as "from the top". */
     if (this._amb) {
       try { this._amb.src.stop(); this._amb.lfo.stop(); } catch (e) {}
       this._amb = null;
@@ -413,10 +470,14 @@
     tg.connect(this.master);
     tap.start(t);
   };
-  /* Parchment friction, rebuilt longer and lower with a wobble. */
-  Engine.prototype.unroll = function (dur) {
+  /* Parchment friction, rebuilt longer and lower with a wobble.
+     `boost` scales the voice (owner #20: the ember ignition sweep rides
+     at 1.4x so it doesn't drown under the kindled music); the intro
+     unroll keeps the default voice. */
+  Engine.prototype.unroll = function (dur, boost) {
     if (!this.ctx) return;
     dur = dur || 2.2;
+    boost = boost || 1;
     var c = this.ctx, t = c.currentTime;
     var src = c.createBufferSource();
     src.buffer = this.noiseBuffer(dur);
@@ -427,13 +488,13 @@
     f.frequency.exponentialRampToValueAtTime(260, t + dur);
     var g = c.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.22, t + 0.25);
-    g.gain.linearRampToValueAtTime(0.12, t + dur * 0.7);
+    g.gain.linearRampToValueAtTime(0.22 * boost, t + 0.25);
+    g.gain.linearRampToValueAtTime(0.12 * boost, t + dur * 0.7);
     g.gain.linearRampToValueAtTime(0.0001, t + dur);
     var wobble = c.createOscillator();
     wobble.frequency.value = 7;
     var wg = c.createGain();
-    wg.gain.value = 0.045;
+    wg.gain.value = 0.045 * boost;
     wobble.connect(wg);
     wg.connect(g.gain);
     src.connect(f);
@@ -443,9 +504,13 @@
     wobble.start(t);
     wobble.stop(t + dur);
   };
-  /* Crackle bed: discrete grains + a faint hiss, like char consuming paper. */
-  Engine.prototype.crackle = function () {
+  /* Crackle bed: discrete grains + a faint hiss, like char consuming paper.
+     boost: the section-crossing paper sound rides at 1.25x (owner
+     2026-10-07 — THIS is the scroll-through-sections sound to lift, not
+     the intro unroll). */
+  Engine.prototype.crackle = function (boost) {
     if (!this.ctx) return;
+    boost = boost || 1;
     var c = this.ctx, t = c.currentTime;
     var grains = 5 + Math.floor(Math.random() * 3);
     for (var i = 0; i < grains; i++) {
@@ -457,7 +522,7 @@
       f.frequency.value = 1600 + Math.random() * 2400;
       f.Q.value = 2.5;
       var g = c.createGain();
-      g.gain.setValueAtTime(0.05 + Math.random() * 0.11, at);
+      g.gain.setValueAtTime((0.05 + Math.random() * 0.11) * boost, at);
       g.gain.exponentialRampToValueAtTime(0.001, at + 0.05);
       src.connect(f);
       f.connect(g);
@@ -470,7 +535,7 @@
     hf.type = "highpass";
     hf.frequency.value = 3000;
     var hg = c.createGain();
-    hg.gain.setValueAtTime(0.03, t);
+    hg.gain.setValueAtTime(0.03 * boost, t);
     hg.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
     hiss.connect(hf);
     hf.connect(hg);
@@ -486,21 +551,26 @@
     return kindleOn && engine.ctx && engine.ctx.state === "running";
   }
   /* Ignition sweep: the low paper-rush rides the TEXT reveal (user round
-     6: the whoosh reads as flame, so it belongs to the charred ignite). */
+     6: the whoosh reads as flame, so it belongs to the charred ignite).
+     Owner #20: hold 75ms longer (0.55 -> 0.625) so the sweep covers the
+     charred cool instead of dying early. Volume: 1.4x (round 1, kept)
+     then a further 1.25x compounded from the new level (owner 2026-10-07)
+     = 1.75x total, so it survives the kindled music. */
   function sweepMaybe() {
     var now = Date.now();
     if (soundOn() && now - lastSweep > 900) {
       lastSweep = now;
-      engine.unroll(0.55);
+      engine.unroll(0.625, 1.75);
     }
   }
   /* Crackle bed: dry paper pops ride the SCROLL MOVEMENT — they fire at
-     the pull crossing, not at the ignition (user round 6 swap). */
+     the pull crossing, not at the ignition (user round 6 swap). Owner
+     2026-10-07: this is the "paper scroll" sound to boost (+25%). */
   function crackleMaybe() {
     var now = Date.now();
     if (soundOn() && now - lastCrackle > 500) {
       lastCrackle = now;
-      engine.crackle();
+      engine.crackle(1.25);
     }
   }
 
@@ -771,6 +841,14 @@
     if (y + window.innerHeight * 0.85 >= zb.offsetTop) return true;
     return false;
   }
+  /* The 3D layer is mid-fade (zone exit / handoff): igniting now would run
+     the animation inside the ghost band, where the sheet's baked text still
+     overlays the column — the "partial display" on the 3D→2D crossing
+     (owner #20). The beat waits for the layer to finish clearing. */
+  function layerClear() {
+    var gl = document.getElementById("gl");
+    return !gl || parseFloat(window.getComputedStyle(gl).opacity) < 0.05;
+  }
   function inView(el) {
     var r = el.getBoundingClientRect();
     return r.top < window.innerHeight && r.bottom > 0;
@@ -813,6 +891,12 @@
     /* A pending beat counts as motion: the batch it belongs to must not
        be overtaken by a stray later trigger. */
     if (!settled || beatTimer) { settlePush(el, fn); return; }
+    /* Direct plays need the same bar as the batched beat: a late ST
+       callback (stale cache during snap glides) can fire onEnter for an
+       element the glide has already scrolled past — playing it there
+       burned it off-screen and the page arrived static (owner recording
+       23-12-52). Not strongly in view -> back to the queue. */
+    if (!strongView(el)) { settlePush(el, fn); return; }
     playNow(el, fn);
   }
   /* Single play path: dequeues the element everywhere, then honors the
@@ -887,6 +971,26 @@
     beatTimer = setTimeout(function () {
       beatTimer = 0;
       if (!settled || !revealsOpen || !pendingSettle.length) return;
+      /* A desk zone owns the screen: the batch must not spend itself
+         behind the opaque 3D layer (owner #20: the first and last pages
+         sit against the zone bands, and a rest inside a band fired their
+         queued ignition unseen — or half-lit at the fade edge, read as
+         "partial display of the animation" on the 3D→2D crossing). Hold
+         the queue; the zone-exit scroll re-runs settle → flush and the
+         batch plays over the visible column, riding the crossfade the
+         same way the intro handoff does. */
+      if (inDeskZone()) return;
+      /* Mid-crossfade (the exit fade is still running): the sheet's baked
+         text is still on screen, so the ignition would play inside the
+         ghost band. Retry on a short poll — the fade self-resolves in
+         ~400ms — and play on the fully visible column. */
+      if (!layerClear()) {
+        beatTimer = setTimeout(function () {
+          beatTimer = 0;
+          if (settled) flushSettle();
+        }, 130);
+        return;
+      }
       var batch = pendingSettle.filter(function (item) { return strongView(item.el); });
       pendingSettle = pendingSettle.filter(function (item) {
         return batch.indexOf(item) < 0;
@@ -894,7 +998,23 @@
       batch.forEach(function (item, i) {
         var panel = item.el.closest(".pull, #hero");
         if (panel) panel.classList.add("lit");
-        setTimeout(function () { playNow(item.el, item.fn); }, i * 50);
+        setTimeout(function () {
+          /* The stagger spans real time: the scroll can land in a desk
+             zone (or move the element out of view) between scheduling
+             and firing — the owner's "partial display" on the first and
+             last pages had the lead elements ignite visibly while the
+             tail spent itself behind the incoming 3D layer. Re-validate
+             at FIRE time: a zone owning the screen re-queues the element
+             for the zone-exit flush (it then plays over the visible
+             column); an element no longer strongly in view goes back to
+             the settle queue for the next evaluation. */
+          if (inDeskZone()) {
+            if (pendingZone.indexOf(item.el) < 0) pendingZone.push(item.el);
+            return;
+          }
+          if (!layerClear() || !strongView(item.el)) { settlePush(item.el, item.fn); return; }
+          playNow(item.el, item.fn);
+        }, i * 50);
       });
     }, REVEAL_BEAT);
   }
@@ -909,6 +1029,13 @@
        it to the post-handoff scroll event would make the crossfade beat
        depend on event timing. */
     var handoff = pendingGate.concat(pendingZone.splice(0, pendingZone.length));
+    /* Ink the block as ONE gesture, top-to-bottom: the raw queue order is
+       IO/ST callback order, which scattered the ignition across a second
+       with blank gaps between already-inked lines (owner recording: the
+       hook — late in the queue — sat blank ~0.6s after the rest was ink). */
+    handoff.sort(function (a, b) {
+      return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+    });
     handoff.forEach(function (el, i) {
       if (inDeskZone()) {
         if (pendingZone.indexOf(el) < 0) pendingZone.push(el);
@@ -916,7 +1043,17 @@
       }
       var panel = el.closest(".pull, #hero");
       if (panel) panel.classList.add("lit");
-      setTimeout(function () { playNow(el, pickFn(el)); }, 60 + i * 70);
+      setTimeout(function () {
+        /* Same fire-time rule as the settle batch: never fire a
+           staggered step into a desk zone that has since claimed the
+           screen (the handoff holds the scroll, so this is a safety
+           net, not a known path). */
+        if (inDeskZone()) {
+          if (pendingZone.indexOf(el) < 0) pendingZone.push(el);
+          return;
+        }
+        playNow(el, pickFn(el));
+      }, 40 + i * 45);
     });
     pendingGate.length = 0;
   }
@@ -930,6 +1067,26 @@
   window.addEventListener("scroll", function () {
     if (pendingZone.length) flushZonePending();
   }, { passive: true });
+  /* Zone crossing (owner #20): leaving a desk zone is the one moment the
+     parked panels (hero above the top band, about/contact below the
+     bottom one) can be reset INVISIBLY — the column is still hidden under
+     the fading 3D layer (it only surfaces below 0.15 opacity). Reset +
+     queue them here and the settle beat's layerClear retry plays the
+     batch as the page surfaces: the first glide down after a desk dwell
+     lands on a BURNING page, not a prefilled one. This replaces the old
+     stay-lit-through-dwell rule (round 6 #4), whose anti-flash rationale
+     died with the fade-band change — a static page popping in at the
+     surfacing is now the visible defect (owner recording 23-12-52). */
+  window.addEventListener("tapestry:zone-leave", function () {
+    ["#hero", "#about-contact"].forEach(function (sel) {
+      var panel = document.querySelector(sel);
+      if (!panel) return;
+      panel.querySelectorAll(".ember-reveal, .ink-reveal, .draw-reveal").forEach(function (el) {
+        resetReveal(el);
+        settlePush(el, pickFn(el));
+      });
+    });
+  });
 
   /* ---------- Shared parchment (ADR-0008): one generator feeds the DOM
      column background AND the 3D sheet texture (scene.js consumes
@@ -1107,6 +1264,7 @@
        behind the opaque layer (critic P1). */
     setTimeout(function () {
       if (!window.__TAPESTRY_3D) {
+        document.documentElement.classList.add("no-3d");
         document.querySelectorAll(".desk-zone").forEach(function (z) { z.remove(); });
         fixHeroSnap();
         rebuildReveals();
@@ -1237,7 +1395,7 @@
         });
         /* Camera feel (2D): the hero sketch drifts inside its frame on
            scroll — the frame never moves, so nothing overlaps. */
-        var drift = gsap.fromTo(".hero-panel img",
+        var drift = gsap.fromTo(".hero-figure img",
           { scale: 1.1, yPercent: -3 },
           {
             scale: 1.1, yPercent: 3, ease: "none",
@@ -1344,9 +1502,17 @@
   /* Ultimate failsafe: a hung intro must never leave the page unreadable.
      Polls rather than trusts a timeout — on a slow-loading device the
      intro handoff can land after any fixed deadline, and opening the gate
-     mid-intro would play the hero behind the 3D layer again. */
+     mid-intro would play the hero behind the 3D layer again.
+     The verdict key is __TAPESTRY_3D, set synchronously at the END of the
+     scene's boot() right AFTER it locks the scroll: while it is undefined
+     the scene module is still fetching and overflow("") means NOTHING yet
+     (opening there pre-fired the hero in IO order — the original partial
+     display, recording 21-13-56). Once it is true, overflow unlocking can
+     only mean the handoff landed (or teardown) — open then. A dead scene
+     is covered by __TAPESTRY_NO_3D and the hard deadline below. */
   var gatePoll = setInterval(function () {
-    if (revealsOpen || document.body.style.overflow !== "hidden") {
+    if (revealsOpen || window.__TAPESTRY_NO_3D ||
+        (window.__TAPESTRY_3D && document.body.style.overflow !== "hidden")) {
       openReveals();
       clearInterval(gatePoll);
     }
@@ -1366,12 +1532,64 @@
     }
     document.body.style.overflow = "";
     document.documentElement.classList.remove("no-snap");
+    document.documentElement.classList.add("no-3d");
     document.querySelectorAll(".desk-zone").forEach(function (z) { z.remove(); });
     fixHeroSnap();
     rebuildReveals();
     openReveals();
   };
   setTimeout(hardDeadline, 25000);
+
+  /* ---------- On-screen FPS meter (owner request 2026-10-07) ----------
+     WHAT IT COUNTS: requestAnimationFrame callbacks — the browser's
+     PRESENTED frames, i.e. exactly the pace the stutter is felt in. Not
+     smoothed, not averaged: a plain count over each 500ms window divided
+     by that window's real elapsed time, so a dip to 30 shows as 30.
+     SECOND LINE: the 3D scene's own counters (window.__T3D, written by
+     scene.js) — render calls per second, the average cost of one rendered
+     frame in milliseconds, and the bloom state read back directly. When
+     the scene deliberately stops rendering (post-handoff, outside the
+     desk zones) it says "3D idle" — the fps number there is the DOM page,
+     not the scene. If the tab is occluded, rAF stops entirely; after 2.5s
+     without a frame the meter says so instead of freezing on a stale
+     number. Pointer-transparent (can never eat a click), no dependencies,
+     one DOM text write per 500ms. */
+  var fpsEl = document.createElement("div");
+  fpsEl.id = "fps-meter";
+  fpsEl.setAttribute("aria-hidden", "true");
+  document.body.appendChild(fpsEl);
+  var fpsFrames = 0, fpsLast = null, fpsLastRenderCount = null;
+  (function fpsLoop(now) {
+    requestAnimationFrame(fpsLoop);
+    if (fpsLast === null) { fpsLast = now; return; }
+    fpsFrames++;
+    var dt = now - fpsLast;
+    if (dt >= 500) {
+      var lines = [Math.round(fpsFrames * 1000 / dt) + " fps"];
+      var D = window.__T3D;
+      if (D) {
+        var rps = fpsLastRenderCount === null ? null
+          : Math.round((D.renderCount - fpsLastRenderCount) * 1000 / dt);
+        fpsLastRenderCount = D.renderCount;
+        if (rps === null) lines.push("3D \u2026");
+        else if (rps > 0) {
+          lines.push("3D " + rps + "/s \u00B7 "
+            + (D.renderCount ? (D.renderMsTotal / D.renderCount).toFixed(1) : "0") + "ms/frame"
+            + " \u00B7 bloom " + (D.bloomOn() ? "on" : "OFF"));
+        } else {
+          lines.push("3D idle");
+        }
+      }
+      fpsEl.textContent = lines.join("  \u00B7  ");
+      fpsFrames = 0;
+      fpsLast = now;
+    }
+  })(0);
+  setInterval(function () {
+    if (performance.now() - fpsLast > 2500) {
+      fpsEl.textContent = "frames paused \u00B7 tab hidden";
+    }
+  }, 1000);
 
   /* Raven form: thud on seal press; real send is #8 (blocked by #7). */
   document.getElementById("raven-form").addEventListener("submit", function (ev) {
@@ -1381,12 +1599,17 @@
     document.getElementById("form-note").hidden = false;
   });
 
-  /* Bridge for the 3D scene module (scene.js): sound on gestures only. */
+  /* Bridge for the 3D scene module (scene.js): sound on gestures only.
+     musicState is a read-only diagnostic (owner + probes verify the mute
+     semantics: the track must stay ALIVE through an unkindle). */
   window.Tapestry = {
     soundOn: soundOn,
     unlock: function () { engine.unlock(); },
+    musicState: function () {
+      return { trackAlive: !!engine._trackSrc, bufCached: !!engine._trackBuf };
+    },
     thud: function () { if (soundOn()) engine.thud(); },
-    unroll: function (dur) { if (soundOn()) engine.unroll(dur); },
+    unroll: function (dur, boost) { if (soundOn()) engine.unroll(dur, boost); },
     smolder: function () { crackleMaybe(); },
     crackle: function () { crackleMaybe(); }
   };

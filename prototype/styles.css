@@ -54,7 +54,8 @@ body::before { left: -70px; }
 body::after { right: -70px; }
 
 /* Illustrated desk candles: the 3D scene owns candles on desktop (scene.js);
-   the SVG pair stands in only where WebGL is absent (<=768px). */
+   the SVG pair stands in only on the non-3D page (mobile UA / reduced
+   motion — html.no-3d, set by scene.js teardown or app.js failsafes). */
 .candle { position: absolute; top: 48px; width: 96px; z-index: 0; display: none; }
 .candle.left { left: max(24px, calc((100% - 1292px) / 2)); }
 .candle.right { right: max(24px, calc((100% - 1292px) / 2)); }
@@ -65,7 +66,7 @@ body::after { right: -70px; }
   30% { transform: scaleY(1.05) scaleX(0.98); opacity: 0.92; }
   60% { transform: scaleY(0.96); opacity: 1; }
 }
-@media (max-width: 768px) { .candle { display: block; } }
+html.no-3d .candle { display: block; }
 
 /* ---------- Desk zones (ADR-0012): thin free-scroll bands that own the
    camera valley. Hidden wherever the 3D scene is absent. ---------- */
@@ -102,7 +103,9 @@ html {
 }
 .zone-cue-inner { display: inline-block; animation: cue-pulse 2s ease-in-out infinite; }
 .zone-cue-top { top: 40px; bottom: auto; }
-@media (max-width: 768px) { .desk-zone { display: none; } }
+/* Zones belong to the 3D experience (UA-chosen, ADR-0015), not to a
+   width: a narrow desktop window keeps its desk bands. */
+html.no-3d .desk-zone { display: none; }
 
 /* ---------- Band ink art (user: the two desk bands should read as
    pages, not empty scroll) ---------- ---------- */
@@ -342,17 +345,23 @@ html.no-gsap .runes li, .runes.rearm li { animation: none; }
 }
 
 /* ---------- Hero: image-left / text-right (mirrored vs quests) ---------- */
+/* #13 verdict (owner 2026-10-07): ONE hero figure for all viewports, HARD
+   SWAP at the breakpoint — the width-morph experiment "doesn't look good",
+   so there is deliberately NO transition here. One element still means one
+   ink reveal: nothing replays across the breakpoint, no un-revealed flash. */
+:root { --hero-focal: 50% 25%; } /* face-center crop rule, provisional until real art */
 .hero-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
-.hero-ring { display: none; }
-.hero-panel, .sketch { margin: 0; }
-.hero-panel { overflow: hidden; } /* parallax rides the img, never the frame */
-.hero-panel img, .sketch img, .hero-ring img {
+.hero-figure {
+  width: 100%; margin: 0;
+  overflow: hidden; /* parallax rides the img, never the frame */
+}
+.hero-figure img, .sketch img {
   width: 100%; height: auto; display: block;
   filter: grayscale(1) contrast(1.06); /* B&W, sketch stays sketch */
   border: 2px solid var(--ink);
   background: var(--parchment-light);
 }
-.hero-panel img { aspect-ratio: 4 / 5; object-fit: cover; }
+.hero-figure img { aspect-ratio: 4 / 5; object-fit: cover; object-position: var(--hero-focal); }
 .sketch img { aspect-ratio: 4 / 5; object-fit: cover; }
 
 .cta-row { display: flex; gap: 14px; flex-wrap: wrap; }
@@ -546,22 +555,23 @@ html.no-gsap .runes li, .runes.rearm li { animation: none; }
 
 .colophon { text-align: center; font-size: 13px; letter-spacing: 2px; margin-top: 40px; opacity: 0.85; }
 
-/* ---------- Mobile: ring hero, stacked pulls, separate sketch screens ---------- */
-@media (max-width: 768px) {
-  /* Mobile hides the desk bands, which deletes the y=0 snap anchor —
-     mandatory would make everything above the hero an unrestable dead
-     zone (critic P1). Loose proximity, as before the round-4 split. */
-  html { scroll-snap-type: y proximity; }
+/* Non-3D page (mobile UA / reduced motion): no desk bands means no y=0
+   snap anchor — mandatory would make everything above the hero an
+   unrestable dead zone (critic P1). Loose proximity, as before the
+   round-4 split. Desktop windows keep mandatory + the zone flip. */
+html.no-3d { scroll-snap-type: y proximity; }
+
+/* ---------- Mobile: ring hero, stacked pulls, separate sketch screens ----------
+   LAYOUT stacking stays viewport-driven (ADR-0015); the 3D choice does not. */
+@media (max-width: 900px) {
   .desk { padding: 16px 10px; }
   .column { padding: 32px 22px; outline-offset: -7px; }
   .pull { padding: 40px 0; }
   #hero { min-height: 100svh; }
   .hero-grid, .quest-grid, .about-grid { grid-template-columns: 1fr; gap: 28px; }
-  .hero-panel { display: none; }
-  /* overflow+radius on the figure too: the replay filament must not
-     bleed past the circular crop (critic P2, mobile evidence shot). */
-  .hero-ring { display: block; margin: 0 auto; width: 220px; overflow: hidden; border-radius: 50%; }
-  .hero-ring img { border-radius: 50%; aspect-ratio: 1 / 1; object-fit: cover; }
+  /* #13 A2: rectangular hero, same 4:5 proportion as desktop — the ring is
+     retired. The framing change is an instant hard swap (no transition). */
+  .hero-figure { width: min(320px, 82%); margin: 0 auto; }
   .name { font-size: 34px; }
   .hand-title { font-size: 20px; }
   .quest-title { font-size: 28px; }
@@ -571,9 +581,28 @@ html.no-gsap .runes li, .runes.rearm li { animation: none; }
   #kindle { right: 14px; bottom: 14px; }
 }
 
+/* ---------- FPS meter (debug tool, owner request 2026-10-07): presented-
+   frame counter + 3D scene counters. Pointer-transparent so it can never
+   eat a click; remove before production. ---------- */
+#fps-meter {
+  position: fixed; top: 8px; left: 8px; z-index: 60;
+  font: 11px/1.4 ui-monospace, Consolas, "Courier New", monospace;
+  letter-spacing: 0.3px;
+  color: var(--parchment-light);
+  background: rgba(20, 16, 11, 0.72);
+  border: 1px solid rgba(232, 213, 163, 0.28);
+  border-radius: 4px;
+  padding: 3px 8px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 /* ---------- Reduced motion: show final state, no pulse/flicker ---------- */
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; scroll-snap-type: none; }
+  /* Reduced motion runs the non-3D page (scene.js tears down) — snap
+     stays fully off there, overriding the no-3d proximity above. */
+  html.no-3d { scroll-snap-type: none; }
   .desk-zone { display: none; }
   .ember-reveal, .ink-reveal { opacity: 1; transform: none; clip-path: none; text-shadow: none; }
   .ember-reveal .ch {

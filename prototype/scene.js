@@ -7,19 +7,28 @@
    edge, end = WIDE again. Scrubbed by scroll inside thin desk zones (ADR-0012),
    fully reversible. Intro = ONE unbroken dolly; the roll drops with a heavy
    damped settle (bounce banned) and unrolls during the move. Click skips.
-   FPS watchdog: degrade (bloom off, then pixel ratio + shadows), never stutter.
-   Skips: reduced-motion, <=768px, no gsap, no WebGL (DOM stands alone). */
+   NO quality watchdog (owner 2026-10-13): one fixed quality all session.
+   Skips: reduced-motion, mobile UA (ADR-0015), no gsap, no WebGL (DOM stands alone). */
 import * as THREE from "three";
 
 (function () {
   var holder = document.getElementById("gl");
   var canvas = document.getElementById("gl-canvas");
   var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  /* Device choice per ADR-0015: the UA ALONE decides — userAgentData first
+     (what the browser's request-desktop toggle actually flips), UA-string
+     fallback. NEVER viewport width: a desktop window keeps the 3D scene at
+     any width, and a phone switches versions via the browser toggle. */
+  function mobileUA() {
+    var d = navigator.userAgentData;
+    if (d && typeof d.mobile === "boolean") return d.mobile;
+    return /Mobi|iPhone|iPod|IEMobile|BlackBerry|Opera Mini/i.test(navigator.userAgent || "");
+  }
   /* If app.js's bounded fallback already gave up on us (slow CDN: the
      zones were removed and the page revealed standalone), do not resurrect
      the 3D over it — the standalone page IS the delivered experience. */
   var zoneTopEarly = document.getElementById("zone-top");
-  if (reduced || window.innerWidth <= 768 || !window.gsap || !zoneTopEarly || !zoneTopEarly.isConnected) {
+  if (reduced || mobileUA() || !window.gsap || !zoneTopEarly || !zoneTopEarly.isConnected) {
     teardown();
   } else {
     /* A boot crash must degrade to "no 3D" (zones removed, DOM standalone),
@@ -38,9 +47,13 @@ import * as THREE from "three";
     dead = true;
     if (holder) holder.remove();
     document.querySelectorAll(".desk-zone").forEach(function (z) { z.remove(); });
+    /* CSS keys the non-3D presentation (candles, zone hiding, proximity
+       snap) off this class instead of a width breakpoint — the experience
+       choice is UA-driven (ADR-0015), the layout stays viewport-driven. */
+    document.documentElement.classList.add("no-3d");
     /* Never leave the page locked if the scene dies mid-intro (context
-       lost, squeeze past 768, boot crash): restore scrolling + snap so
-       the DOM page stands alone (critic P1). */
+       lost, boot crash): restore scrolling + snap so the DOM page stands
+       alone (critic P1). */
     document.body.style.overflow = "";
     document.documentElement.classList.remove("no-snap");
     /* The column may be mid-crossfade — the standalone page must be
@@ -65,8 +78,12 @@ import * as THREE from "three";
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  /* NO shadow map at all (owner 2026-10-13: "remove the candle shadow
+     from the left candle entirely, I don't want it") — and the left
+     candle's spot was the only shadow-casting light, so this disables
+     the whole shadow system from the first frame: no depth pass, no
+     shadow sampling in any material, no mid-session state. */
+  renderer.shadowMap.enabled = false;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.12;
 
@@ -240,9 +257,8 @@ import * as THREE from "three";
      background light — plus a small point light at the flame that wraps
      the wax body itself. Candela units, decay 2 (r160). */
   var flameLight = new THREE.SpotLight(0xffbe7a, 26, 30, 1.0, 0.85, 2);
-  flameLight.castShadow = true;
-  flameLight.shadow.mapSize.set(1024, 1024);
-  flameLight.shadow.bias = -0.002;
+  /* castShadow intentionally never set (owner 2026-10-13: the left
+     candle's shadow is unwanted; see the shadowMap note at boot). */
   flameLight.target.position.set(-4.5, 0, -1.0);
   scene.add(flameLight.target);
   scene.add(flameLight);
@@ -853,7 +869,7 @@ import * as THREE from "three";
   var haloL = makeHalo(-5.4, 3.2, -2.2, 1.7);
   var haloR = makeHalo(5.4, 2.85, -2.2, 1.5);
 
-  /* ---------- Desk dressing: inkwell + quill, seal stamp, loose sheets -- */
+  /* ---------- Desk dressing: loose sheets (inkwell/quill/stamp removed 2026-10-13) -- */
   /* Static contact shadows: the props sit outside the spot pools, so a
      cheap dark blob under each keeps them from floating (critic pass 2). */
   var blobTex = (function () {
@@ -882,62 +898,13 @@ import * as THREE from "three";
   }
   blob(-5.4, -2.2, 2.1, 2.1);
   blob(5.4, -2.2, 2.1, 2.1);
-  blob(-3.7, 1.9, 1.15, 1.15);
-  blob(-3.25, 2.35, 1.5, 0.8);
-  blob(3.55, 2.6, 1.1, 1.1);
   blob(-3.75, -0.1, 2.2, 3.2);
 
-  var glass = new THREE.MeshStandardMaterial({ color: 0x17131a, roughness: 0.25, metalness: 0.15 });
-  var inkwell = new THREE.Group();
-  var well = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 0.34, 18), glass);
-  well.position.y = 0.17;
-  well.castShadow = true;
-  inkwell.add(well);
-  var neck = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.12, 18), glass);
-  neck.position.y = 0.4;
-  inkwell.add(neck);
-  var ink = new THREE.Mesh(
-    new THREE.CircleGeometry(0.11, 16),
-    new THREE.MeshStandardMaterial({ color: 0x0c0a12, roughness: 0.3 })
-  );
-  ink.rotation.x = -Math.PI / 2;
-  ink.position.y = 0.44;
-  inkwell.add(ink);
-  inkwell.position.set(-3.7, 0, 1.9);
-  scene.add(inkwell);
-
-  var featherMat = new THREE.MeshStandardMaterial({ color: 0xcfc0a0, roughness: 0.85 });
-  var quill = new THREE.Group();
-  var shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.035, 1.5, 8), featherMat);
-  shaft.position.y = 0.75;
-  quill.add(shaft);
-  var vane = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.85, 8), featherMat);
-  vane.scale.z = 0.22;
-  vane.position.y = 1.55;
-  quill.add(vane);
-  quill.rotation.z = 0.65;
-  quill.rotation.y = 0.5;
-  quill.position.set(-3.25, 0.1, 2.35);
-  shaft.castShadow = true;
-  scene.add(quill);
-
-  var brass = new THREE.MeshStandardMaterial({ color: 0xb08d57, roughness: 0.35, metalness: 0.8 });
-  var stamp = new THREE.Group();
-  var disc = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.07, 20), brass);
-  disc.position.y = 0.045;
-  disc.castShadow = true;
-  stamp.add(disc);
-  var stem = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.5, 10), woodDark);
-  stem.position.y = 0.32;
-  stamp.add(stem);
-  var knobTop = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 10), woodDark);
-  knobTop.position.y = 0.6;
-  stamp.add(knobTop);
-  /* Lying on its side near the sheet edge, the way a stamp rests on a desk. */
-  stamp.rotation.z = 1.25;
-  stamp.rotation.y = -0.4;
-  stamp.position.set(3.55, 0.28, 2.6);
-  scene.add(stamp);
+  /* The inkwell, quill, and seal stamp were REMOVED (owner 2026-10-13:
+     "remove these elements from the table, I don't want it" — with crops
+     of the inkwell+quill pair and the stamp). Their construction, their
+     materials (glass/featherMat/brass), and their three contact-shadow
+     blobs went with them. The loose sheets stay. */
 
   var looseSheets = new THREE.Group();
   var sheetPainted = [];
@@ -1094,7 +1061,6 @@ import * as THREE from "three";
   /* ---------- Loop: renders only while the 3D layer is visible ---------- */
   var live = false;
   var clock = new THREE.Clock();
-  var emaDt = 16, slowMs = 0, stage = 0;
   /* Layer opacity chases a goal (set by show/zone scrubs/exits) even when
      not live — random boundary input crossfades instead of popping. */
   var opGoal = 0, opCur = 0;
@@ -1109,46 +1075,15 @@ import * as THREE from "three";
     }
     if (!live) return;
     var t = clock.getElapsedTime();
-    /* Watchdog (ADR-0010): below ~42fps sustained -> degrade, one way.
-       Order: the spotlight shadow map first (biggest fill-rate cost),
-       then bloom, then pixel ratio.
-       SUSPENDED UNTIL THE INTRO IS DONE (user recording 13-34-01: the
-       stage 0->1 degrade — shadowMap off + needsUpdate on EVERY material
-       — landed mid-unroll and the resulting lazy program recompiles
-       froze the sheet for ~750ms; the cure WAS the hang). The warm
-       frames also pre-charge emaDt with ~500ms dts, so both reset here
-       every pre-handoff frame; the degrade then happens on the settled
-       desk scene, where a one-off stutter is invisible next to the
-       intro's motion. */
-    if (!introDone) {
-      emaDt = 0; slowMs = 0;
-    } else {
-      emaDt = emaDt * 0.95 + dt * 1000 * 0.05;
-      if (emaDt > 23.5) {
-        slowMs += dt * 1000;
-        if (slowMs > 2500 && stage === 0) {
-          stage = 1; slowMs = 0;
-          flameLight.castShadow = false;
-          renderer.shadowMap.enabled = false;
-          /* r160 keeps a per-material program cache: force recompile or the
-             disable is a silent no-op (critic pass 2). Multi-material meshes
-             (the roll) need per-member updates (critic round 4). */
-          scene.traverse(function (o) {
-            if (!o.material) return;
-            if (Array.isArray(o.material)) o.material.forEach(function (m) { m.needsUpdate = true; });
-            else o.material.needsUpdate = true;
-          });
-        } else if (slowMs > 2500 && stage === 1) {
-          stage = 2; slowMs = 0;
-          if (bloomPass) bloomPass.enabled = false;
-        } else if (slowMs > 2500 && stage === 2) {
-          stage = 3; slowMs = 0;
-          renderer.setPixelRatio(1.25);
-        }
-      } else {
-        slowMs = Math.max(0, slowMs - dt * 500);
-      }
-    }
+    /* NO quality watchdog (owner 2026-10-13: "remove the watchdog
+       entirely, it is only creating nuisance"). Quality is FIXED for the
+       whole session — composer always, shadows always on, pixel ratio
+       never changes. Nothing may recompile or degrade mid-experience:
+       the old ladder's shadow-off rung forced a full material recompile
+       that itself stalled frames (the meter's 9fps dips on section
+       changes), and its pixel-ratio rung never resized the composer's
+       render targets at all (EffectComposer caches its own pixel ratio).
+       Waste is removed at the source in this build instead. */
     /* Out-of-phase flicker; the shader, the lights and the halos share
        one clock and one depth — brightness that desyncs from its source
        is what kills the "lit by the candles" read (research Finding 3). */
@@ -1172,9 +1107,64 @@ import * as THREE from "three";
     haloL.material.opacity = Math.min(0.8, 0.5 * f1);
     haloR.material.opacity = Math.min(0.8, 0.5 * f2);
     camChase(dt);
-    if (composer && stage <= 1) composer.render();
+    var __rt0 = window.__T3D ? performance.now() : 0;
+    /* The composer owns the frame (bloom + ACES output must never
+       silently vanish). */
+    if (composer) composer.render();
     else renderer.render(scene, camera);
+    if (window.__T3D) {
+      window.__T3D.renderMsTotal += performance.now() - __rt0;
+      window.__T3D.renderCount++;
+    }
   }
+  /* Debug/diagnosis handle (round-6b method): lets a probe flip the two
+     GPU cost levers live and read back render times. Kept tiny; the
+     per-frame cost is one performance.now() pair only while __T3D is
+     observed. */
+  window.__T3D = {
+    renderMsTotal: 0,
+    renderCount: 0,
+    plain: false,
+    setBloom: function (on) { if (bloomPass) bloomPass.enabled = on; },
+    bloomOn: function () { return !!(bloomPass && bloomPass.enabled); },
+    setShadows: function (on) {
+      renderer.shadowMap.enabled = on;
+      flameLight.castShadow = on;
+      scene.traverse(function (o) {
+        if (!o.material) return;
+        (Array.isArray(o.material) ? o.material : [o.material]).forEach(function (m) { m.needsUpdate = true; });
+      });
+    },
+    setDpr: function (v) {
+      renderer.setPixelRatio(v);
+      if (composer) composer.setSize(window.innerWidth, window.innerHeight);
+    },
+    setPlain: function (on) { this.plain = on; },
+    stage: function () { return 0; }, /* watchdog is gone; stub for the meter */
+    /* Bench knobs (occlusion-proof GPU-cost measurement, 2026-10-07):
+       offscreen renders the whole composer chain into render targets with
+       no screen blit — steady-state submission cost then equals true GPU
+       frame cost even when the window cannot present. */
+    setOffscreen: function (on) { if (composer) composer.renderToScreen = !on; },
+    setBloomRes: function (scale) {
+      if (!bloomPass) return;
+      bloomPass.setSize(
+        Math.max(2, Math.round(window.innerWidth * scale)),
+        Math.max(2, Math.round(window.innerHeight * scale)));
+    },
+    pose: function (valleyT, openV) {
+      setCam(valleyT);
+      open = openV;
+      layRoll();
+    },
+    renderOnce: function () {
+      var t0 = performance.now();
+      camChase(0.016);
+      if (!this.plain && composer) composer.render();
+      else renderer.render(scene, camera);
+      return performance.now() - t0;
+    }
+  };
   layRoll();
   tick();
   function show() { live = true; holder.classList.add("live"); setOpacity(1); }
@@ -1182,11 +1172,16 @@ import * as THREE from "three";
   function setOpacity(v) { opGoal = v; }
   /* The DOM column crossfades against the 3D layer instead of ghosting
      under it (user recording: both layers at ~50% read as a double
-     exposure). Tracks the DAMPED value in tick so they move together. */
+     exposure). Tracks the DAMPED value in tick so they move together.
+     The column surfaces only in the LAST slice of the fade: the sheet's
+     baked text and the DOM text are the same words at different
+     projections, and any band where both are legible reads as the ghost
+     double-exposure the owner kept recording (ticket #20). 0.15 keeps a
+     whisper of overlap so the hand stays a crossfade, not a swap. */
   var columnEl = document.querySelector(".column");
   function syncColumnFade() {
     if (!columnEl) return;
-    columnEl.style.opacity = String(Math.max(0, Math.min(1, (0.5 - opCur) * 2)));
+    columnEl.style.opacity = String(Math.max(0, Math.min(1, (0.15 - opCur) / 0.15)));
   }
 
   function mixPose(A, B, t) {
@@ -1303,6 +1298,15 @@ import * as THREE from "three";
     if (topActive || botActive) {
       topActive = botActive = false;
       zoneExit();
+      /* Crossing OUT of a desk zone (never fired by the intro handoff's
+         own zoneExit — this branch only runs when a zone truly claimed
+         first). app.js uses this moment, while the DOM column is still
+         invisible under the fading layer, to reset the parked panels so
+         they REPLAY their reveal as the page surfaces (owner #20: the
+         first glide down after a desk dwell must not land on a prefilled
+         hero — the old stay-lit-through-dwell rule predates the fade
+         mapping change and now reads as dead content popping in). */
+      try { window.dispatchEvent(new CustomEvent("tapestry:zone-leave")); } catch (e) {}
     }
   }
 
@@ -1371,8 +1375,8 @@ import * as THREE from "three";
        mid-desk), drop the 3D layer, restore scrolling, then tell app.js
        to open the reveal gate so the hero ignition is always seen. */
     de.style.scrollBehavior = "auto";
-    /* If the zones were torn down mid-intro (context lost, squeeze past
-       768), the captured zone height is a lie — land relative to 0. */
+    /* If the zones were torn down mid-intro (context lost), the captured
+       zone height is a lie — land relative to 0. */
     var zoneH = (zoneTopEl && zoneTopEl.isConnected) ? topZoneH : 0;
     var land = zoneH;
     var hero = document.querySelector("#hero");
@@ -1434,8 +1438,9 @@ import * as THREE from "three";
     de.style.scrollBehavior = prevBeh;
   }
   show();
-  /* Click-to-skip must catch clicks on the hidden DOM underneath: the
-     holder takes pointer events only while the intro is running. */
+  /* The holder keeps pointer events while the intro runs ONLY so it eats
+     clicks (the hidden DOM underneath must not be clickable mid-intro).
+     There is NO skip: the intro plays in full (owner 2026-10-07). */
   open = 0;
   layRoll();
   /* The roll rests just above the desk during the hold — the drop is a
@@ -1448,7 +1453,7 @@ import * as THREE from "three";
     if (introStarted || introDone) return;
     introStarted = true;
     window.__INTRO_STATE = "intro-running";
-    holder.style.pointerEvents = "auto";
+    holder.style.pointerEvents = "auto"; /* eats clicks only — no skip path */
     introTl = window.gsap.timeline({ onComplete: handoff });
     /* Wide hold cut 1.9 -> 1.0 (user round 5: total hover ≈1.5s, not 2.3) */
     introTl.to({}, { duration: 1.0 }); /* wide hold: desk, candles, rolled scroll */
@@ -1538,31 +1543,19 @@ import * as THREE from "three";
     var giveUp = setTimeout(finish, 1600);
     (function step() {
       if (done) return;
-      if (composer && composerReady && stage <= 1) composer.render();
+      if (composer && composerReady) composer.render();
       else renderer.render(scene, camera);
       if (++frames < 6) { requestAnimationFrame(step); return; }
       clearTimeout(giveUp);
       finish();
     })();
   }
-  holder.addEventListener("click", function () {
-    if (!introDone && introStarted && introTl) introTl.progress(1);
-  });
-
   /* ---------- Resize ---------- */
-  var tornDown = false;
-  /* One-way latch: widening back past 768 does NOT rebuild the scene —
-     accepted degrade (a reload brings it back). */
+  /* The 3D choice is load-time UA only (ADR-0015): a desktop window
+     resize — however narrow — never tears the scene down. Layout stacking
+     keeps following the viewport via CSS; only the look is fixed. */
   window.addEventListener("resize", function () {
     fitPUSH();
-    if (window.innerWidth <= 768 && !tornDown) {
-      /* The scene is desktop-only; a squeeze past the breakpoint takes
-         the whole layer with it instead of leaving WebGL running. */
-      tornDown = true;
-      zoneIdle();
-      teardown();
-      return;
-    }
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
