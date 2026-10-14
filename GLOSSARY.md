@@ -92,6 +92,11 @@ _Avoid_: zoomed-in view, reading mode, content view
 A thin free-scroll band at the very top or bottom of the page where snap is off, scroll scrubs the camera, and the 3D scene renders. Content pulls never begin inside one.
 _Avoid_: overscroll area, dead zone, margin
 
+**Frozen dwell**:
+The resting state inside a desk zone where the stationary desk and candles hold while the flames continue to flicker live.
+_Avoid_: paused canvas, freeze frame, idle mode
+
+
 ## Materials
 
 **Parchment**:
