@@ -1,17 +1,20 @@
-# Charred reveal: char edge + embers + heat shimmer; all fire timings 400ms
+# Charred reveal: char edge, embers, and heat shimmer with 400ms settle token
 
-Status: accepted (2026-10-04).
+Status: accepted (2026-10-14).
 
-Text and sketch reveals become a charred burn: a ragged charred edge with ember glow and heat shimmer consumes each line, ink settles behind it, sparks drift, lines stagger. Per-element fire animation, this replaces the flat CSS gradient fire-front bar (a "childish" tell). Cool-to-ink and all fire settle timings are 400ms — the earlier 270ms was judged too short to appreciate (user, 2026-10-04); only the char pass itself may run longer. Mobile ≤768px (no WebGL) keeps exactly this 2D charred reveal — it is the mobile experience, not a fallback. Consequence: reveal code owns three coordinated layers (char mask, glow, sparks) per element, so reveal triggers must stay per-line, and the 400ms token is the single source of truth for both CSS and JS timings.
+Text and sketch reveals ignite as a charred burn: a ragged burning filament sweeps each line/panel, glowing embers drift on a 2D canvas, and text cools to permanent ink over a single source-of-truth 400ms token. Reveals replay on viewport re-entry and are governed by a settle gate (motion queues triggers, igniting only after 80ms of scroll quiet + 60ms beat) so animations never pop in or burn off-screen.
 
-## Update (2026-10-04, user iterate round)
+## Performance Rules & Architecture
 
-Reveals are no longer once-only: every ember/ink/sigil reveal REPLAYS each time its element re-enters the viewport, from either direction (ScrollTrigger onEnter + onEnterBack with an explicit end line; IntersectionObservers no longer unobserve). Three guards keep this honest: a ~900ms per-element cooldown so boundary jitter cannot machine-gun replays; zone defer — nothing plays while a desk zone owns the screen (deferred plays flush when the 2D column is visible again; the 3D sheet itself stays static by design); and a reveal gate — nothing plays until the intro handoff, so the hero ignition is always SEEN (it used to fire under the 3D overlay and get "cached and skipped"). Replays reset state through a transition-suppressing `.rearm` class so the burn re-runs fresh instead of reversing mid-flight. Consequence: reveal functions must be idempotent-and-restartable, and every play paths (direct, gate flush, zone flush) shares one scheduler.
+- **No forced layout flushes**: Synchronous `offsetWidth` reads are banned. Elements reset via persistent off-screen `.rearm`, cleanly stripped in a `requestAnimationFrame` microtask when igniting.
+- **Layer promotion restraint**: `.ember-reveal .ch` uses `will-change: opacity, transform`. `filter` is excluded from `will-change` to prevent thousands of GPU texture backing layers.
+- **Pre-rendered particle glow**: 2D canvas ember sparks stamp a pre-rendered 32×32 radial gradient sprite via `drawImage()`, eliminating per-frame `shadowBlur` Gaussian convolutions.
+- **GPU transform sweeps**: `.char-line` sweeps via GPU `transform: translateY()`, isolating fire wobble to the independent CSS `scale: 1 0.9 -> 1 1.14` property to avoid layout recalculation.
+- **Desk zone deferral**: Reveals never ignite behind opaque 3D desk zones; pending triggers queue and flush smoothly upon zone exit.
 
-## Update (2026-10-05, user iterate round 5: settle-gated choreography)
+## Consequences
 
-The reveal scheduler gained a settle gate (user: "contents visible first, then everything disappears and the animation plays" + "125ms after the scroll animation finishes"). Rules now: (1) nothing plays while scroll motion is in progress or a reveal beat is pending — mid-scroll triggers only QUEUE; (2) after 140ms of scroll quiet, a 125ms beat passes, then the panel lights up (a faint warm inset box-shadow added as `.lit`, kept — candlelight does not leave) and the text ignites; the ember/crackle sound rides the ignition, so scroll sound and ember sound separate; (3) replayable elements pre-reset to hidden ONLY while fully off-screen (`resetIfHidden` on trigger/observer exits) — a revisit never shows old content vanishing; (4) the settle stamp runs in the CAPTURE phase — ScrollTrigger's own scroll handler (CDN script, registered earlier) fires its onEnter/onEnterBack synchronously in the bubble phase, and a bubble-phase stamp read a stale `settled` and played mid-scroll (verified by stack trace). The 900ms replay cooldown and the gate/zone queues are unchanged and now drain through the same beat. Consequence: reveals always lag the scroll by ~265ms+batch-stagger — accepted by user (A3), iterate later if it feels slow.
-
-## Update (2026-10-05, user iterate round 5b: half the wait, no pop-ins)
-
-User: halve the reveal wait. SETTLE_MS 140→80, REVEAL_BEAT 125→60, batch stagger 90→50 (total ≈140ms after motion stops + ~50/step stagger). Two "appears before the animation" sources fixed: (1) the rune chips are element children — splitChars cannot animate them — they now fade-rise as a staggered row (`rune-in`, 90ms steps, replay-safe via .rearm, disabled for reduced motion); (2) the handoff batch drains BOTH queues at the event (see ADR-0009 update) — the hero's requests queue in pendingZone during the intro (y=0 is inside the top zone), so the crossfade no longer depends on the post-handoff scroll event. Verified ST semantics for the new layout: the hero's start line now sits BELOW y=0 (hero top ~1060), so the hero reveal legitimately comes from onEnter at the handoff landing, not creation — the settle gate still orders it under the sheet hold.
+- All fire settle timings share the 400ms token across CSS and JS.
+- Schedulers must remain idempotent and restartable across repeated scroll visits.
+- Re-entries enforce a 900ms cooldown to prevent boundary jitter machine-gunning.
+- Mobile ≤768px (no WebGL) keeps exactly this 2D charred reveal as its primary experience.

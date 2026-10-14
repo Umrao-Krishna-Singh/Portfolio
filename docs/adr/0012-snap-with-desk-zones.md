@@ -1,23 +1,12 @@
-# Snap stays mandatory on content pulls; thin free-scroll desk zones at the edges own the 3D camera
+# Mandatory scroll-snap on content pulls with thin free-scroll desk zones
 
-Status: accepted (2026-10-04).
+Status: accepted (2026-10-14).
 
-Mandatory scroll-snap on content pulls survives the camera work: pulls must land cleanly, per ADR-0005 and the live demo. The valley camera (ADR-0009) needs continuous scroll, so the page gets thin free-scroll desk zones at the very top and very bottom where snap is disabled and scroll position scrubs the camera; everywhere between, snap governs and the 3D scene does not render. The alternatives were rejected: scrubbing the camera across the whole page fights snap mechanically, and free-scrolling everything loses the pull rhythm users approved. Consequence: snap CSS must be toggleable per zone (not a single html-level rule alone), the 3D renderer's on/off must follow zone entry/exit exactly, and a pull may never begin inside a desk zone.
+Scroll-snap is mandatory on the 2D content pulls (`html { scroll-snap-type: y mandatory }`) to ensure pulls land cleanly. The top and bottom 45svh page edges are free-scroll desk zones where snap is softened (`html.snap-soft { scroll-snap-type: y proximity }`) and scroll position scrubs the 3D camera. When the camera rests stationary inside either desk zone, the 3D scene smoothly parks into Frozen Dwell (ADR-0016).
 
-## Update (2026-10-04, user iterate round)
+## Consequences
 
-Snap is `y proximity`, not mandatory: with a 150svh desk zone above the column, mandatory made every small upward wheel from the hero die 1.7k px from the only other snap point and yank back — the "janky at the first/last section under random input" report. Proximity keeps the click-into-place at rest points (verified: human-scale wheels glide onto the exact hero snap offset) and leaves the desk zones genuinely free for the camera scrub. The camera/opacity damping (ADR-0009 update) absorbs the boundary jitter proximity allows. Consequence: resting positions are no longer guaranteed mid-page if a gesture ends far from a pull — accepted, the pull rhythm survives at rest.
-
-## Update (2026-10-04, user iterate round 4: mandatory outside, proximity inside, and the ST.refresh ban)
-
-User wanted proximity made stronger everywhere except the two desk bands. Exploration result: CSS cannot vary snap-type by scroll region (one scroller, one snap-type), so the split is implemented as a class flip driven by zone membership — `html { scroll-snap-type: y mandatory }` default, `html.snap-soft { proximity }` while a band owns the camera. Verified in-browser: wheel from the hero lands exactly on the next section, small up-wheels bounce back (strong), flings into a band rest free with the 3D live, flings out land exactly on the hero. A known bound: a programmatic scrollTo into a band is yanked back by Chrome's synchronous re-snap before JS can flip the class — wheel/trackpad input, the real case, is fine. Page top gained `scroll-snap-align: start` (mirroring the end desk) so the wide view is a legal rest.
-
-The same round found and fixed a worse, hidden bug: **ScrollTrigger.refresh() measures every trigger shifted by the current scroll** in this stack (compositor-driven CSS snap updates the offset between ST's rect read and its cached scroll; verified: zone starts drifted to -1779 after the handoff jump, leaving the bands dead under mandatory snap). `create()` measures correctly at ANY scroll. Policy: refresh() is banned (`autoRefreshEvents: "none"`); triggers are killed and re-created on fonts.ready, debounced resize, and the failsafes; the desk zones left ScrollTrigger entirely for a plain geometry-driven scroll listener (one zone decision per event — a stale opposite-band claim must not zoneIdle the band that just activated). Consequence: any future ScrollTrigger.refresh() call reintroduces silent corruption; use the rebuild path.
-
-## Update (2026-10-05, user iterate round 5: 150svh -> 70svh, one-wheel crossings)
-
-The 150svh zones made the 3D<->2D crossing cost 2 wheel gestures from the very top and 3-4 from full bottom (user: "the scroll at the top and bottom is very soft"). Both zones are now 70svh. The bottom band activates 495px above full bottom and the top zone ends 630px down — ONE decisive gesture crosses in either direction at human input scale. The camera scrub compresses with the zone (progress maps from offsetHeight, so the same poses glide faster — the snappier read is intended). The band ink art moved with the fade windows (top art at `bottom: 4svh`, bottom art at `top: -2svh` of its zone) since the transit windows shrank from ~48svh to ~22svh. Consequence: mid-band rests still exist (snap-soft inside zones) but are brief by design; a programmatic jump still yanks per the known Chrome bound.
-
-## Update (2026-10-05, user iterate round 5b: 70svh -> 45svh)
-
-At 70svh a flick still rested mid-zone showing the half-faded "in-between state" (user: "there's in between states, can be one wheel"). Both zones are 45svh (405px at 900): one flick crosses into mandatory snap in either direction — the bottom band now activates 270px above full bottom. The top fade starts at 55% progress (was 68%) so the dead-opaque middle shrinks with the zone; band art re-anchored (`bottom: 2svh` / `top: -2svh`).
+- **Zone toggle**: Snap mode flips via the `.snap-soft` class dynamically driven by geometry-based scroll calculations.
+- **Symmetrical dwell**: Stationary rests at either page top (`scrollY <= 120`) or page bottom (`scrollY >= maxScroll - 120`) activate frozen dwell parking at 60 fps.
+- **ScrollTrigger.refresh() banned**: In this stack (compositor-driven CSS snap + ST), `refresh()` measures triggers shifted by current scroll; triggers are destroyed and rebuilt (`rebuildReveals()`) on resize/re-entry. `autoRefreshEvents: "none"` is enforced.
+- One decisive wheel gesture crosses between the 45svh desk zones and the mandatory-snap reading column.
