@@ -409,7 +409,7 @@ html.no-gsap .runes li, .runes.rearm li { animation: none; }
     0 0 34px rgba(255, 154, 42, 0.55);
   transition: opacity 120ms ease, transform 170ms ease, filter 300ms ease,
     color 400ms ease, text-shadow 400ms ease;
-  will-change: opacity, transform, filter;
+  will-change: opacity, transform;
 }
 .ember-reveal.ignited .ch {
   opacity: 1; transform: none; filter: blur(0.5px);
@@ -435,7 +435,8 @@ html.no-gsap .runes li, .runes.rearm li { animation: none; }
   transition: clip-path 1100ms ease, filter 900ms ease;
 }
 .ink-reveal .char-line {
-  position: absolute; left: -2%; right: -2%; height: 30px; top: -20px;
+  position: absolute; left: -2%; right: -2%; height: 30px; top: 0;
+  will-change: transform;
   pointer-events: none; z-index: 2; mix-blend-mode: screen;
   background-image:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='60'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012 0.3' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='60' filter='url(%23c)'/%3E%3C/svg%3E"),
@@ -452,8 +453,8 @@ html.no-gsap .runes li, .runes.rearm li { animation: none; }
   animation: charline-wobble 0.32s ease-in-out infinite alternate;
 }
 @keyframes charline-wobble {
-  from { transform: scaleY(0.9); }
-  to { transform: scaleY(1.14) translateY(1px); }
+  from { scale: 1 0.9; }
+  to { scale: 1 1.14; }
 }
 .ink-reveal .burn-frame {
   position: absolute; inset: -6px; pointer-events: none; z-index: 2;

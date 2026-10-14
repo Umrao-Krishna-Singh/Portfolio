@@ -631,6 +631,21 @@
     if (sparks.length > 220) sparks.splice(0, sparks.length - 220);
   }
   var hadSparks = false;
+  var sparkSprite = (function () {
+    var c = document.createElement("canvas");
+    c.width = c.height = 32;
+    var g = c.getContext("2d");
+    var rg = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+    rg.addColorStop(0, "rgba(255, 230, 160, 1)");
+    rg.addColorStop(0.2, "rgba(255, 180, 50, 0.95)");
+    rg.addColorStop(0.55, "rgba(255, 120, 30, 0.4)");
+    rg.addColorStop(1, "rgba(255, 100, 20, 0)");
+    g.fillStyle = rg;
+    g.beginPath();
+    g.arc(16, 16, 16, 0, Math.PI * 2);
+    g.fill();
+    return c;
+  })();
   (function emberLoop() {
     requestAnimationFrame(emberLoop);
     if (!ectx) return;
@@ -647,14 +662,12 @@
     sparks.forEach(function (p) {
       p.x += p.vx; p.y += p.vy; p.vy -= 0.008; p.life -= 0.016;
       var a = Math.max(p.life, 0);
-      ectx.beginPath();
-      ectx.fillStyle = "rgba(255," + Math.floor(154 + 60 * a) + ",42," + (0.85 * a).toFixed(2) + ")";
-      ectx.shadowColor = "rgba(255,154,42,0.9)";
-      ectx.shadowBlur = 8;
-      ectx.arc(p.x, p.y, p.r * a + 0.4, 0, 6.283);
-      ectx.fill();
+      if (a <= 0) return;
+      var sz = (p.r * a + 0.4) * 4.8;
+      ectx.globalAlpha = a * 0.9;
+      ectx.drawImage(sparkSprite, p.x - sz * 0.5, p.y - sz * 0.5, sz, sz);
     });
-    ectx.shadowBlur = 0;
+    ectx.globalAlpha = 1;
   })();
   function sparkAt(el, n) {
     try {
@@ -727,21 +740,16 @@
     if (!el.dataset.split) {
       splitChars(el);
       el.dataset.split = "1";
-    } else {
-      /* Snap the chars back to their unlit state with transitions off,
-         else re-adding .ignited the same frame just reverses mid-flight. */
-      el.classList.add("rearm");
-      el.classList.remove("ignited", "cooled");
-      void el.offsetWidth;
-      el.classList.remove("rearm");
     }
+    el.classList.remove("ignited", "cooled");
     el.classList.add("revealed");
     var n = el.querySelectorAll(".ch").length || 1;
     sparkAt(el, Math.min(22, 8 + Math.round(n / 6)));
     sweepMaybe();
-    /* Next frame: flip to ignite so the per-char transitions run. */
+    /* Next frame: remove rearm and flip to ignite so the per-char transitions run. */
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
+        el.classList.remove("rearm");
         el.classList.add("ignited");
       });
     });
@@ -756,8 +764,6 @@
       /* Replay: snap-reset, drop leftover effects, run again. */
       el.classList.add("rearm");
       el.classList.remove("revealed", "framed");
-      void el.offsetWidth;
-      el.classList.remove("rearm");
       var stale = el.querySelectorAll(".char-line, .burn-frame");
       for (var i = 0; i < stale.length; i++) stale[i].remove();
     }
@@ -766,6 +772,9 @@
       el.classList.add("framed");
       return;
     }
+    requestAnimationFrame(function () {
+      el.classList.remove("rearm");
+    });
     sparkAt(el, 18);
     sweepMaybe();
     var line = document.createElement("span");
@@ -776,8 +785,9 @@
     frame.setAttribute("aria-hidden", "true");
     el.appendChild(line);
     el.appendChild(frame);
-    window.gsap.fromTo(line, { top: "-8%" }, {
-      top: "102%", duration: 1.05, ease: "power1.inOut",
+    var h = el.offsetHeight || 400;
+    window.gsap.fromTo(line, { y: -25 }, {
+      y: h + 10, duration: 1.05, ease: "power1.inOut",
       onComplete: function () {
         /* A fast replay replaced this line: the new play owns the element
            now — don't strip its frame mid-flight (critic P2). */
@@ -792,14 +802,13 @@
 
   /* Draw-on reveal (sigil caps): stroke dashes fill in, replayable. */
   function drawOn(el) {
-    if (el.classList.contains("on")) {
-      el.classList.add("rearm");
-      el.classList.remove("on");
-      void el.offsetWidth;
-      el.classList.remove("rearm");
-    }
+    el.classList.add("rearm");
+    el.classList.remove("on");
     requestAnimationFrame(function () {
-      requestAnimationFrame(function () { el.classList.add("on"); });
+      requestAnimationFrame(function () {
+        el.classList.remove("rearm");
+        el.classList.add("on");
+      });
     });
   }
 
@@ -928,19 +937,16 @@
       if (!el.classList.contains("revealed")) return;
       el.classList.add("rearm");
       el.classList.remove("revealed", "framed");
-      void el.offsetWidth;
-      el.classList.remove("rearm");
       var stale = el.querySelectorAll(".char-line, .burn-frame");
       for (var i = 0; i < stale.length; i++) stale[i].remove();
     } else if (el.classList.contains("draw-reveal")) {
+      el.classList.add("rearm");
       el.classList.remove("on");
     } else {
       if (!el.classList.contains("revealed")) return;
       if (el.dataset.split) {
         el.classList.add("rearm");
         el.classList.remove("revealed", "ignited", "cooled");
-        void el.offsetWidth;
-        el.classList.remove("rearm");
       } else {
         el.classList.remove("revealed");
       }

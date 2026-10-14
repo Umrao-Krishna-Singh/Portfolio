@@ -126,7 +126,79 @@ import * as THREE from "three";
      Addons come from the pinned jsdelivr package; any failure keeps the
      plain renderer (no bloom, same scene). OutputPass applies ACES + sRGB
      when compositing; without it the renderer tone-maps directly. */
-  var composer = null, bloomPass = null, composerReady = false;
+  var composer = null, bloomPass = null, grainPass = null, composerReady = false;
+
+  /* Stage 1: Film grain inside WebGL composer removes the mix-blend-mode overlay tax */
+  function makeGrainPass(ShaderPass) {
+    var c = document.createElement("canvas");
+    c.width = 240; c.height = 240;
+    var ctx = c.getContext("2d");
+    var img = ctx.createImageData(240, 240);
+    var d = img.data;
+    function lattice(cx, cy) {
+      var s = Math.sin(cx * 127.1 + cy * 311.7) * 43758.5453;
+      return s - Math.floor(s);
+    }
+    function vnoise(u, v, cells) {
+      var x = u * cells, y = v * cells;
+      var x0 = Math.floor(x), y0 = Math.floor(y);
+      var fx = x - x0, fy = y - y0;
+      fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+      var c0 = lattice(x0 % cells, y0 % cells);
+      var c1 = lattice((x0 + 1) % cells, y0 % cells);
+      var c2 = lattice(x0 % cells, (y0 + 1) % cells);
+      var c3 = lattice((x0 + 1) % cells, (y0 + 1) % cells);
+      return c0 + (c1 - c0) * fx + (c2 - c0) * fy + (c0 - c1 - c2 + c3) * fx * fy;
+    }
+    for (var y = 0; y < 240; y++) {
+      for (var x = 0; x < 240; x++) {
+        var h = vnoise(x / 240, y / 240, 200) * 0.62 + vnoise(x / 240, y / 240, 100) * 0.38;
+        var val = Math.floor(Math.min(255, Math.max(0, h * 255)));
+        var idx = (y * 240 + x) * 4;
+        d[idx] = val;
+        d[idx + 1] = val;
+        d[idx + 2] = val;
+        d[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    var grainTex = new THREE.CanvasTexture(c);
+    grainTex.wrapS = grainTex.wrapT = THREE.RepeatWrapping;
+
+    return new ShaderPass({
+      uniforms: {
+        tDiffuse: { value: null },
+        uGrain: { value: grainTex },
+        uShift: { value: new THREE.Vector2(0, 0) },
+        uOpacity: { value: 0.10 }
+      },
+      vertexShader: [
+        "varying vec2 vUv;",
+        "void main() {",
+        "  vUv = uv;",
+        "  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
+        "}"
+      ].join("\n"),
+      fragmentShader: [
+        "uniform sampler2D tDiffuse;",
+        "uniform sampler2D uGrain;",
+        "uniform vec2 uShift;",
+        "uniform float uOpacity;",
+        "varying vec2 vUv;",
+        "vec3 overlayBlend(vec3 b, vec3 s) {",
+        "  return mix(2.0 * b * s, 1.0 - 2.0 * (1.0 - b) * (1.0 - s), step(0.5, b));",
+        "}",
+        "void main() {",
+        "  vec4 base = texture2D(tDiffuse, vUv);",
+        "  vec2 grainCoord = (gl_FragCoord.xy + uShift) / vec2(240.0, 240.0);",
+        "  vec4 grain = texture2D(uGrain, grainCoord);",
+        "  vec3 blended = overlayBlend(base.rgb, grain.rgb);",
+        "  gl_FragColor = vec4(mix(base.rgb, blended, uOpacity), base.a);",
+        "}"
+      ].join("\n")
+    });
+  }
+
   Promise.all([
     import("three/addons/postprocessing/EffectComposer.js"),
     import("three/addons/postprocessing/RenderPass.js"),
@@ -294,15 +366,17 @@ import * as THREE from "three";
     return t;
   }
   var woodMap = tex((PBR && PBR.wood && PBR.wood.color) || "../.tmp/pen-runs/assets/wood051-color.jpg", 2, 2);
+  var woodNormal = (PBR && PBR.wood && PBR.wood.normal) ? dataTex(PBR.wood.normal) : null;
+  var woodRough = (PBR && PBR.wood && PBR.wood.roughness) ? dataTex(PBR.wood.roughness) : null;
   var tableMat = new THREE.MeshStandardMaterial({ map: woodMap, color: PBR ? 0xa8845c : 0x96754d, roughness: 0.82 });
-  if (PBR && PBR.wood && PBR.wood.normal) {
-    tableMat.normalMap = dataTex(PBR.wood.normal);
+  if (woodNormal) {
+    tableMat.normalMap = woodNormal;
     tableMat.normalScale = new THREE.Vector2(0.35, 0.35);
   }
-  if (PBR && PBR.wood && PBR.wood.roughness) {
-    tableMat.roughnessMap = dataTex(PBR.wood.roughness);
+  if (woodRough) {
+    tableMat.roughnessMap = woodRough;
   }
-  [woodMap, tableMat.normalMap, tableMat.roughnessMap].forEach(function (t) {
+  [woodMap, woodNormal, woodRough].forEach(function (t) {
     if (t && t.anisotropy !== undefined) t.anisotropy = 8;
   });
 
@@ -764,8 +838,8 @@ import * as THREE from "three";
     scene.add(g);
     return g;
   }
-  makeCandle(-5.4, -2.2, 2.3);
-  makeCandle(5.4, -2.2, 1.95);
+  var candleL = makeCandle(-5.4, -2.2, 2.3);
+  var candleR = makeCandle(5.4, -2.2, 1.95);
   flameLight.position.set(-5.4, 3.15, -2.2);
   flameLight2.position.set(5.4, 2.8, -2.2);
 
@@ -1058,6 +1132,506 @@ import * as THREE from "three";
   scene.add(dressingLight);
   scene.add(dressingLight.target);
 
+  /* ---------- Stage 2: Analytic GPU lightmap bake of big surfaces ---------- */
+  var sharedPoolUniforms = {
+    uF1: { value: 1.0 },
+    uF2: { value: 1.0 }
+  };
+  var freezeTime = null;
+
+  function patchBakeMaterial(mat, pool1Tex, pool2Tex, sharedUniforms, cacheKey) {
+    mat.customProgramCacheKey = function () { return cacheKey; };
+    mat.onBeforeCompile = function (shader) {
+      shader.uniforms.uPool1 = { value: pool1Tex };
+      shader.uniforms.uPool2 = { value: pool2Tex };
+      shader.uniforms.uF1 = sharedUniforms.uF1;
+      shader.uniforms.uF2 = sharedUniforms.uF2;
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        /#include\s*<lightmap_pars_fragment>/,
+        [
+          "#include <lightmap_pars_fragment>",
+          "uniform sampler2D uPool1;",
+          "uniform sampler2D uPool2;",
+          "uniform float uF1;",
+          "uniform float uF2;"
+        ].join("\n")
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        /reflectedLight\.indirectDiffuse\s*\+=\s*lightMapTexel\.rgb\s*\*\s*lightMapIntensity\s*\*\s*RECIPROCAL_PI;/,
+        [
+          "vec3 lm = lightMapTexel.rgb * lightMapIntensity",
+          "        + texture2D(uPool1, vLightMapUv).rgb * uF1",
+          "        + texture2D(uPool2, vLightMapUv).rgb * uF2;",
+          "reflectedLight.indirectDiffuse += lm * RECIPROCAL_PI;"
+        ].join("\n")
+      );
+    };
+  }
+
+  function patchTableMaterial(mat, pool1Tex, pool2Tex, sharedUniforms) {
+    mat.customProgramCacheKey = function () { return "table-specular-baked-v3"; };
+    mat.onBeforeCompile = function (shader) {
+      shader.uniforms.uPool1 = { value: pool1Tex };
+      shader.uniforms.uPool2 = { value: pool2Tex };
+      shader.uniforms.uF1 = sharedUniforms.uF1;
+      shader.uniforms.uF2 = sharedUniforms.uF2;
+      shader.uniforms.uNormalMap = { value: woodNormal };
+      shader.uniforms.uFlame1Pos = { value: new THREE.Vector3().copy(flameLight.position) };
+      shader.uniforms.uFlame1Color = { value: new THREE.Color(0xffbe7a).multiplyScalar(26.0) };
+      shader.uniforms.uFlame2Pos = { value: new THREE.Vector3().copy(flameLight2.position) };
+      shader.uniforms.uFlame2Color = { value: new THREE.Color(0xffbe7a).multiplyScalar(21.0) };
+
+      shader.vertexShader = shader.vertexShader.replace(
+        "#include <common>",
+        "#include <common>\nvarying vec3 vWorldPos;"
+      );
+      shader.vertexShader = shader.vertexShader.replace(
+        "#include <worldpos_vertex>",
+        "#include <worldpos_vertex>\nvWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;"
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        /#include\s*<lightmap_pars_fragment>/,
+        [
+          "#include <lightmap_pars_fragment>",
+          "uniform sampler2D uPool1, uPool2, uNormalMap;",
+          "uniform float uF1, uF2;",
+          "uniform vec3 uFlame1Pos, uFlame1Color, uFlame2Pos, uFlame2Color;",
+          "varying vec3 vWorldPos;"
+        ].join("\n")
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        /reflectedLight\.indirectDiffuse\s*\+=\s*lightMapTexel\.rgb\s*\*\s*lightMapIntensity\s*\*\s*RECIPROCAL_PI;/,
+        [
+          "vec3 lm = lightMapTexel.rgb * lightMapIntensity",
+          "        + texture2D(uPool1, vLightMapUv).rgb * uF1",
+          "        + texture2D(uPool2, vLightMapUv).rgb * uF2;",
+          "reflectedLight.indirectDiffuse += lm * RECIPROCAL_PI;"
+        ].join("\n")
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        /vec3 outgoingLight = reflectedLight\.indirectDiffuse;/,
+        [
+          "vec3 outgoingLight = reflectedLight.indirectDiffuse;",
+          "vec3 nTex = texture2D(uNormalMap, vMapUv).xyz * 2.0 - 1.0;",
+          "vec3 N = normalize(vec3(nTex.x * 0.35, 1.0, -nTex.y * 0.35));",
+          "vec3 V = normalize(cameraPosition - vWorldPos);",
+          "vec3 L1 = normalize(uFlame1Pos - vWorldPos);",
+          "vec3 H1 = normalize(L1 + V);",
+          "float dotNL1 = max(dot(N, L1), 0.0);",
+          "float dotNH1 = max(dot(N, H1), 0.0);",
+          "float spec1 = pow(dotNH1, 30.0) * dotNL1;",
+          "vec3 L2 = normalize(uFlame2Pos - vWorldPos);",
+          "vec3 H2 = normalize(L2 + V);",
+          "float dotNL2 = max(dot(N, L2), 0.0);",
+          "float dotNH2 = max(dot(N, H2), 0.0);",
+          "float spec2 = pow(dotNH2, 30.0) * dotNL2;",
+          "vec3 spec = (uFlame1Color * spec1 * uF1 + uFlame2Color * spec2 * uF2) * 0.026;",
+          "outgoingLight += spec;"
+        ].join("\n")
+      );
+    };
+  }
+
+  function makeBakeTarget() {
+    return new THREE.WebGLRenderTarget(1024, 1024, {
+      type: THREE.HalfFloatType,
+      depthBuffer: false,
+      stencilBuffer: false,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      generateMipmaps: false
+    });
+  }
+
+  var tableA = makeBakeTarget(), tableB1 = makeBakeTarget(), tableB2 = makeBakeTarget();
+  var wallA = makeBakeTarget(), wallB1 = makeBakeTarget(), wallB2 = makeBakeTarget();
+  var sheetA = makeBakeTarget(), sheetB1 = makeBakeTarget(), sheetB2 = makeBakeTarget();
+
+  function initBake() {
+    var bakeCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    var bakeScene = new THREE.Scene();
+    var bakeQuadMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+    bakeScene.add(bakeQuadMesh);
+
+    var bakeMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uGroup: { value: 0 },
+        uWorldOrigin: { value: new THREE.Vector3() },
+        uWorldAxisU: { value: new THREE.Vector3() },
+        uWorldAxisV: { value: new THREE.Vector3() },
+        uWorldNormal: { value: new THREE.Vector3() },
+
+        // Static A
+        uHemiSky: { value: new THREE.Color(0x36435c).multiplyScalar(0.42) },
+        uHemiGround: { value: new THREE.Color(0x1d1409).multiplyScalar(0.42) },
+        uHemiDir: { value: new THREE.Vector3(0, 1, 0) },
+        uKeyColor: { value: new THREE.Color(0x9db0cc).multiplyScalar(0.85) },
+        uKeyDir: { value: new THREE.Vector3().subVectors(keyLight.position, keyLight.target.position).normalize() },
+        uBackPos: { value: new THREE.Vector3().copy(back.position) },
+        uBackColor: { value: new THREE.Color(0xff9d5c).multiplyScalar(26.0) },
+        uBackDist: { value: 26.0 },
+        uBackDecay: { value: 2.0 },
+
+        // Left Candle B1
+        uFlame1Pos: { value: new THREE.Vector3().copy(flameLight.position) },
+        uFlame1Color: { value: new THREE.Color(0xffbe7a).multiplyScalar(26.0) },
+        uFlame1Dir: { value: new THREE.Vector3().subVectors(flameLight.position, flameLight.target.position).normalize() },
+        uFlame1Dist: { value: 30.0 },
+        uFlame1Decay: { value: 2.0 },
+        uFlame1ConeCos: { value: Math.cos(1.0) },
+        uFlame1PenumbraCos: { value: Math.cos(1.0 * (1.0 - 0.85)) },
+
+        uDressingPos: { value: new THREE.Vector3().copy(dressingLight.position) },
+        uDressingColor: { value: new THREE.Color(0xffbe7a).multiplyScalar(13.0) },
+        uDressingDir: { value: new THREE.Vector3().subVectors(dressingLight.position, dressingLight.target.position).normalize() },
+        uDressingDist: { value: 9.0 },
+        uDressingDecay: { value: 2.0 },
+        uDressingConeCos: { value: Math.cos(0.85) },
+        uDressingPenumbraCos: { value: Math.cos(0.85 * (1.0 - 0.95)) },
+
+        uBody1Pos: { value: new THREE.Vector3().copy(bodyLight.position) },
+        uBody1Color: { value: new THREE.Color(0xffb066).multiplyScalar(9.0) },
+        uBody1Dist: { value: 7.0 },
+        uBody1Decay: { value: 2.0 },
+
+        // Right Candle B2
+        uFlame2Pos: { value: new THREE.Vector3().copy(flameLight2.position) },
+        uFlame2Color: { value: new THREE.Color(0xffbe7a).multiplyScalar(21.0) },
+        uFlame2Dir: { value: new THREE.Vector3().subVectors(flameLight2.position, flameLight2.target.position).normalize() },
+        uFlame2Dist: { value: 30.0 },
+        uFlame2Decay: { value: 2.0 },
+        uFlame2ConeCos: { value: Math.cos(1.0) },
+        uFlame2PenumbraCos: { value: Math.cos(1.0 * (1.0 - 0.85)) },
+
+        uBody2Pos: { value: new THREE.Vector3().copy(bodyLight2.position) },
+        uBody2Color: { value: new THREE.Color(0xffb066).multiplyScalar(7.0) },
+        uBody2Dist: { value: 6.0 },
+        uBody2Decay: { value: 2.0 }
+      },
+      vertexShader: [
+        "varying vec2 vUv;",
+        "void main() {",
+        "  vUv = uv;",
+        "  gl_Position = vec4(position.xy, 0.0, 1.0);",
+        "}"
+      ].join("\n"),
+      fragmentShader: [
+        "precision highp float;",
+        "varying vec2 vUv;",
+        "uniform int uGroup;",
+        "uniform vec3 uWorldOrigin;",
+        "uniform vec3 uWorldAxisU;",
+        "uniform vec3 uWorldAxisV;",
+        "uniform vec3 uWorldNormal;",
+
+        "uniform vec3 uHemiSky;",
+        "uniform vec3 uHemiGround;",
+        "uniform vec3 uHemiDir;",
+        "uniform vec3 uKeyColor;",
+        "uniform vec3 uKeyDir;",
+        "uniform vec3 uBackPos;",
+        "uniform vec3 uBackColor;",
+        "uniform float uBackDist;",
+        "uniform float uBackDecay;",
+
+        "uniform vec3 uFlame1Pos;",
+        "uniform vec3 uFlame1Color;",
+        "uniform vec3 uFlame1Dir;",
+        "uniform float uFlame1Dist;",
+        "uniform float uFlame1Decay;",
+        "uniform float uFlame1ConeCos;",
+        "uniform float uFlame1PenumbraCos;",
+
+        "uniform vec3 uDressingPos;",
+        "uniform vec3 uDressingColor;",
+        "uniform vec3 uDressingDir;",
+        "uniform float uDressingDist;",
+        "uniform float uDressingDecay;",
+        "uniform float uDressingConeCos;",
+        "uniform float uDressingPenumbraCos;",
+
+        "uniform vec3 uBody1Pos;",
+        "uniform vec3 uBody1Color;",
+        "uniform float uBody1Dist;",
+        "uniform float uBody1Decay;",
+
+        "uniform vec3 uFlame2Pos;",
+        "uniform vec3 uFlame2Color;",
+        "uniform vec3 uFlame2Dir;",
+        "uniform float uFlame2Dist;",
+        "uniform float uFlame2Decay;",
+        "uniform float uFlame2ConeCos;",
+        "uniform float uFlame2PenumbraCos;",
+
+        "uniform vec3 uBody2Pos;",
+        "uniform vec3 uBody2Color;",
+        "uniform float uBody2Dist;",
+        "uniform float uBody2Decay;",
+
+        "float getDistanceAttenuation( const in float lightDistance, const in float cutoffDistance, const in float decayExponent ) {",
+        "  float distanceFalloff = 1.0 / max( pow( lightDistance, decayExponent ), 0.01 );",
+        "  if ( cutoffDistance > 0.0 ) {",
+        "    float factor = clamp( 1.0 - pow( lightDistance / cutoffDistance, 4.0 ), 0.0, 1.0 );",
+        "    distanceFalloff *= factor * factor;",
+        "  }",
+        "  return distanceFalloff;",
+        "}",
+
+        "float getSpotAttenuation( const in float coneCosine, const in float penumbraCosine, const in float angleCosine ) {",
+        "  return smoothstep( coneCosine, penumbraCosine, angleCosine );",
+        "}",
+
+        "void main() {",
+        "  vec3 P = uWorldOrigin + vUv.x * uWorldAxisU + vUv.y * uWorldAxisV;",
+        "  vec3 N = normalize(uWorldNormal);",
+        "  vec3 irradiance = vec3(0.0);",
+
+        "  if (uGroup == 0) {",
+        "    float dotNHemi = dot(N, uHemiDir);",
+        "    float hemiWeight = 0.5 * dotNHemi + 0.5;",
+        "    irradiance += mix(uHemiGround, uHemiSky, hemiWeight);",
+
+        "    float dotNKey = max(dot(N, uKeyDir), 0.0);",
+        "    irradiance += uKeyColor * dotNKey;",
+
+        "    vec3 backL = uBackPos - P;",
+        "    float backDist = length(backL);",
+        "    if (backDist > 0.0) {",
+        "      vec3 backDir = normalize(backL);",
+        "      float dotNBack = max(dot(N, backDir), 0.0);",
+        "      float backAtten = getDistanceAttenuation(backDist, uBackDist, uBackDecay);",
+        "      irradiance += uBackColor * dotNBack * backAtten;",
+        "    }",
+        "  } else if (uGroup == 1) {",
+        "    vec3 flame1L = uFlame1Pos - P;",
+        "    float flame1Dist = length(flame1L);",
+        "    if (flame1Dist > 0.0) {",
+        "      vec3 flame1Dir = normalize(flame1L);",
+        "      float angleCos1 = dot(flame1Dir, uFlame1Dir);",
+        "      float spotAtten1 = getSpotAttenuation(uFlame1ConeCos, uFlame1PenumbraCos, angleCos1);",
+        "      if (spotAtten1 > 0.0) {",
+        "        float dotNFlame1 = max(dot(N, flame1Dir), 0.0);",
+        "        float distAtten1 = getDistanceAttenuation(flame1Dist, uFlame1Dist, uFlame1Decay);",
+        "        irradiance += uFlame1Color * spotAtten1 * distAtten1 * dotNFlame1;",
+        "      }",
+        "    }",
+
+        "    vec3 dressL = uDressingPos - P;",
+        "    float dressDist = length(dressL);",
+        "    if (dressDist > 0.0) {",
+        "      vec3 dressDir = normalize(dressL);",
+        "      float angleCosD = dot(dressDir, uDressingDir);",
+        "      float spotAttenD = getSpotAttenuation(uDressingConeCos, uDressingPenumbraCos, angleCosD);",
+        "      if (spotAttenD > 0.0) {",
+        "        float dotNDress = max(dot(N, dressDir), 0.0);",
+        "        float distAttenD = getDistanceAttenuation(dressDist, uDressingDist, uDressingDecay);",
+        "        irradiance += uDressingColor * spotAttenD * distAttenD * dotNDress;",
+        "      }",
+        "    }",
+        "    vec3 body1L = uBody1Pos - P;",
+        "    float body1Dist = length(body1L);",
+        "    if (body1Dist > 0.0) {",
+        "      vec3 body1Dir = normalize(body1L);",
+        "      float dotNBody1 = max(dot(N, body1Dir), 0.0);",
+        "      float distAttenB1 = getDistanceAttenuation(body1Dist, uBody1Dist, uBody1Decay);",
+        "      irradiance += uBody1Color * distAttenB1 * dotNBody1;",
+        "    }",
+        "  } else if (uGroup == 2) {",
+        "    vec3 flame2L = uFlame2Pos - P;",
+        "    float flame2Dist = length(flame2L);",
+        "    if (flame2Dist > 0.0) {",
+        "      vec3 flame2Dir = normalize(flame2L);",
+        "      float angleCos2 = dot(flame2Dir, uFlame2Dir);",
+        "      float spotAtten2 = getSpotAttenuation(uFlame2ConeCos, uFlame2PenumbraCos, angleCos2);",
+        "      if (spotAtten2 > 0.0) {",
+        "        float dotNFlame2 = max(dot(N, flame2Dir), 0.0);",
+        "        float distAtten2 = getDistanceAttenuation(flame2Dist, uFlame2Dist, uFlame2Decay);",
+        "        irradiance += uFlame2Color * spotAtten2 * distAtten2 * dotNFlame2;",
+        "      }",
+        "    }",
+        "    vec3 body2L = uBody2Pos - P;",
+        "    float body2Dist = length(body2L);",
+        "    if (body2Dist > 0.0) {",
+        "      vec3 body2Dir = normalize(body2L);",
+        "      float dotNBody2 = max(dot(N, body2Dir), 0.0);",
+        "      float distAttenB2 = getDistanceAttenuation(body2Dist, uBody2Dist, uBody2Decay);",
+        "      irradiance += uBody2Color * distAttenB2 * dotNBody2;",
+        "    }",
+        "  }",
+
+        "  gl_FragColor = vec4(irradiance, 1.0);",
+        "}"
+      ].join("\n"),
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false
+    });
+    bakeQuadMesh.material = bakeMat;
+
+    var surfaces = [
+      {
+        origin: new THREE.Vector3(-23.0, 0.0, 15.0),
+        axisU: new THREE.Vector3(46.0, 0.0, 0.0),
+        axisV: new THREE.Vector3(0.0, 0.0, -30.0),
+        normal: new THREE.Vector3(0.0, 1.0, 0.0),
+        targets: [tableA, tableB1, tableB2]
+      },
+      {
+        origin: new THREE.Vector3(-35.0, -9.0, -18.0),
+        axisU: new THREE.Vector3(70.0, 0.0, 0.0),
+        axisV: new THREE.Vector3(0.0, 30.0, 0.0),
+        normal: new THREE.Vector3(0.0, 0.0, 1.0),
+        targets: [wallA, wallB1, wallB2]
+      }
+    ];
+
+    surfaces.forEach(function (surf) {
+      bakeMat.uniforms.uWorldOrigin.value.copy(surf.origin);
+      bakeMat.uniforms.uWorldAxisU.value.copy(surf.axisU);
+      bakeMat.uniforms.uWorldAxisV.value.copy(surf.axisV);
+      bakeMat.uniforms.uWorldNormal.value.copy(surf.normal);
+
+      for (var grp = 0; grp < 3; grp++) {
+        bakeMat.uniforms.uGroup.value = grp;
+        renderer.setRenderTarget(surf.targets[grp]);
+        renderer.clear();
+        renderer.render(bakeScene, bakeCamera);
+      }
+    });
+
+    renderer.setRenderTarget(null);
+    bakeScene.remove(bakeQuadMesh);
+    bakeQuadMesh.geometry.dispose();
+    bakeMat.dispose();
+
+    // Material swaps to unlit MeshBasicMaterial with lightmaps + flicker pools + normal specular
+    // Keep tableMat as MeshStandardMaterial to preserve 100% exact PBR specular sheen from back and flame lights
+    // table.material = tableMat;
+
+
+    var wallMat = new THREE.MeshBasicMaterial({
+      color: 0x392b1a,
+      lightMap: wallA.texture,
+      lightMapIntensity: 1,
+      fog: true
+    });
+    patchBakeMaterial(wallMat, wallB1.texture, wallB2.texture, sharedPoolUniforms, "wall-baked-v1");
+    wall.material = wallMat;
+    wall.geometry.setAttribute("uv2", wall.geometry.attributes.uv.clone());
+  }
+
+  initBake();
+
+  /* ---------- Stage 3: Frozen Dwell for desk stillness ---------- */
+  var baseMeshes = [
+    wall, windowGlow, windowCore, chairBack, chairStiles,
+    hearthBed, table, plane, topDowel, rollGroup, looseSheets,
+    candleL, candleR
+  ];
+  function setBaseVisible(v) {
+    for (var i = 0; i < baseMeshes.length; i++) {
+      if (baseMeshes[i]) baseMeshes[i].visible = v;
+    }
+  }
+
+  var holdTarget = new THREE.WebGLRenderTarget(
+    Math.max(2, Math.round(window.innerWidth * Math.min(1.0, window.devicePixelRatio || 1))),
+    Math.max(2, Math.round(window.innerHeight * Math.min(1.0, window.devicePixelRatio || 1))),
+    {
+      type: THREE.HalfFloatType,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      depthBuffer: true
+    }
+  );
+
+  var holdQuadScene = new THREE.Scene();
+  var holdQuadCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1);
+  var holdQuadMat = new THREE.MeshBasicMaterial({
+    map: holdTarget.texture,
+    depthTest: false,
+    depthWrite: false
+  });
+  var holdQuadMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), holdQuadMat);
+  holdQuadMesh.frustumCulled = false;
+  holdQuadScene.add(holdQuadMesh);
+
+  function captureHoldTarget() {
+    if (!composer || !live) return;
+    flameL.visible = false;
+    flameR.visible = false;
+    haloL.visible = false;
+    haloR.visible = false;
+    setBaseVisible(true);
+
+    var curF1 = sharedPoolUniforms.uF1.value;
+    var curF2 = sharedPoolUniforms.uF2.value;
+    var curFL1 = flameLight.intensity;
+    var curFL2 = flameLight2.intensity;
+    var curBL1 = bodyLight.intensity;
+    var curBL2 = bodyLight2.intensity;
+    var curDL = dressingLight.intensity;
+
+    flameLight.intensity = 26;
+    flameLight2.intensity = 21;
+    bodyLight.intensity = 9;
+    bodyLight2.intensity = 7;
+    dressingLight.intensity = 13;
+    sharedPoolUniforms.uF1.value = 1.0;
+    sharedPoolUniforms.uF2.value = 1.0;
+
+    renderer.setRenderTarget(holdTarget);
+    renderer.clear();
+    renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+
+    flameLight.intensity = curFL1;
+    flameLight2.intensity = curFL2;
+    bodyLight.intensity = curBL1;
+    bodyLight2.intensity = curBL2;
+    dressingLight.intensity = curDL;
+    sharedPoolUniforms.uF1.value = curF1;
+    sharedPoolUniforms.uF2.value = curF2;
+
+    flameL.visible = true;
+    flameR.visible = true;
+    haloL.visible = true;
+    haloR.visible = true;
+  }
+
+  function renderParked(f1, f2) {
+    var fAvg = (f1 + f2) * 0.5;
+    holdQuadMat.color.setScalar(1.0 + (fAvg - 1.0) * 0.28);
+
+    renderer.setRenderTarget(composer.readBuffer);
+    renderer.render(holdQuadScene, holdQuadCamera);
+
+    setBaseVisible(false);
+    var prevBg = scene.background;
+    scene.background = null;
+    renderer.clearDepth();
+
+    var rp = composer.passes[0];
+    var prevClear = rp.clear;
+    rp.clear = false;
+
+    composer.render();
+
+    rp.clear = prevClear;
+    scene.background = prevBg;
+    setBaseVisible(true);
+  }
+
+  var dwellStillMs = 0;
+  var isParked = false;
+  var lastScrollY = window.scrollY;
+  var lastCamP = new THREE.Vector3().copy(camera.position);
+
   /* ---------- Loop: renders only while the 3D layer is visible ---------- */
   var live = false;
   var clock = new THREE.Clock();
@@ -1087,10 +1661,11 @@ import * as THREE from "three";
     /* Out-of-phase flicker; the shader, the lights and the halos share
        one clock and one depth — brightness that desyncs from its source
        is what kills the "lit by the candles" read (research Finding 3). */
-    var f1 = 1 + 0.1 * Math.sin(t * 13) + 0.07 * Math.sin(t * 31 + 1);
-    var f2 = 1 + 0.1 * Math.sin(t * 11 + 2.4) + 0.07 * Math.sin(t * 27 + 4);
-    flameUniforms[0].uTime.value = t;
-    flameUniforms[1].uTime.value = t;
+    var ft = (freezeTime !== null) ? freezeTime : t;
+    var f1 = 1 + 0.1 * Math.sin(ft * 13) + 0.07 * Math.sin(ft * 31 + 1);
+    var f2 = 1 + 0.1 * Math.sin(ft * 11 + 2.4) + 0.07 * Math.sin(ft * 27 + 4);
+    flameUniforms[0].uTime.value = ft;
+    flameUniforms[1].uTime.value = ft;
     /* Full billboard: the camera stays steeply top-down, so the flames
        must face it (a vertical plane reads as a sliver from above). */
     flameL.lookAt(camera.position);
@@ -1106,15 +1681,48 @@ import * as THREE from "three";
     dressingLight.intensity = 13 * f1;
     haloL.material.opacity = Math.min(0.8, 0.5 * f1);
     haloR.material.opacity = Math.min(0.8, 0.5 * f2);
+    sharedPoolUniforms.uF1.value = f1;
+    sharedPoolUniforms.uF2.value = f2;
     camChase(dt);
+    if (grainPass) {
+      var DRIFT = [[0, 0], [-24, 14], [18, -28], [-30, -8], [26, 22]];
+      var driftIdx = Math.floor((t % 1.1) / 0.22) % 5;
+      grainPass.uniforms.uShift.value.set(DRIFT[driftIdx][0], DRIFT[driftIdx][1]);
+    }
+    var maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    var inDwell = (window.scrollY <= 120) || (maxScroll > 200 && window.scrollY >= maxScroll - 120);
+    var moving = (Math.abs(window.scrollY - lastScrollY) > 0.5) ||
+                 (Math.abs(opCur - opGoal) > 0.004) ||
+                 (lastCamP.distanceToSquared(camera.position) > 0.0001) ||
+                 !introDone || !inDwell;
+
+    lastScrollY = window.scrollY;
+    lastCamP.copy(camera.position);
+
+    if (moving) {
+      dwellStillMs = 0;
+      isParked = false;
+    } else {
+      dwellStillMs += dt * 1000;
+      if (dwellStillMs >= 250 && !isParked && composer) {
+        captureHoldTarget();
+        isParked = true;
+      }
+    }
+
     var __rt0 = window.__T3D ? performance.now() : 0;
     /* The composer owns the frame (bloom + ACES output must never
        silently vanish). */
-    if (composer) composer.render();
-    else renderer.render(scene, camera);
+    if (isParked && composer) {
+      renderParked(f1, f2);
+    } else {
+      if (composer) composer.render();
+      else renderer.render(scene, camera);
+    }
     if (window.__T3D) {
       window.__T3D.renderMsTotal += performance.now() - __rt0;
       window.__T3D.renderCount++;
+      window.__T3D.isParked = isParked;
     }
   }
   /* Debug/diagnosis handle (round-6b method): lets a probe flip the two
@@ -1125,6 +1733,9 @@ import * as THREE from "three";
     renderMsTotal: 0,
     renderCount: 0,
     plain: false,
+    get composer() { return composer; },
+    get renderer() { return renderer; },
+    get holdTarget() { return holdTarget; },
     setBloom: function (on) { if (bloomPass) bloomPass.enabled = on; },
     bloomOn: function () { return !!(bloomPass && bloomPass.enabled); },
     setShadows: function (on) {
@@ -1163,6 +1774,12 @@ import * as THREE from "three";
       if (!this.plain && composer) composer.render();
       else renderer.render(scene, camera);
       return performance.now() - t0;
+    },
+    freezeFlicker: function (t) {
+      freezeTime = (typeof t === "number") ? t : null;
+    },
+    getFreezeTime: function () {
+      return freezeTime;
     }
   };
   layRoll();
@@ -1317,6 +1934,8 @@ import * as THREE from "three";
      create() measures correctly, but a listener costs nothing and cannot
      drift. Progress math mirrors the old trigger ranges exactly. */
   function zoneScroll() {
+    isParked = false;
+    dwellStillMs = 0;
     if (dead || !introDone) return;
     /* Detached zones (teardown) must never claim a band: with the zones
        gone, offsetHeight/offsetTop read as 0 and the bottom test would be
@@ -1560,6 +2179,14 @@ import * as THREE from "three";
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
     if (composer) composer.setSize(window.innerWidth, window.innerHeight);
+    isParked = false;
+    dwellStillMs = 0;
+    if (holdTarget) {
+      holdTarget.setSize(
+        Math.max(2, Math.round(window.innerWidth * Math.min(1.0, window.devicePixelRatio || 1))),
+        Math.max(2, Math.round(window.innerHeight * Math.min(1.0, window.devicePixelRatio || 1)))
+      );
+    }
     topZoneH = zoneTopEl ? zoneTopEl.offsetHeight : window.innerHeight * 1.4;
   });
 
