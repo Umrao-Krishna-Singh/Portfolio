@@ -1596,56 +1596,6 @@
   };
   setTimeout(hardDeadline, 25000);
 
-  /* ---------- On-screen FPS meter (owner request 2026-10-07) ----------
-     WHAT IT COUNTS: requestAnimationFrame callbacks — the browser's
-     PRESENTED frames, i.e. exactly the pace the stutter is felt in. Not
-     smoothed, not averaged: a plain count over each 500ms window divided
-     by that window's real elapsed time, so a dip to 30 shows as 30.
-     SECOND LINE: the 3D scene's own counters (window.__T3D, written by
-     scene.js) — render calls per second, the average cost of one rendered
-     frame in milliseconds, and the bloom state read back directly. When
-     the scene deliberately stops rendering (post-handoff, outside the
-     desk zones) it says "3D idle" — the fps number there is the DOM page,
-     not the scene. If the tab is occluded, rAF stops entirely; after 2.5s
-     without a frame the meter says so instead of freezing on a stale
-     number. Pointer-transparent (can never eat a click), no dependencies,
-     one DOM text write per 500ms. */
-  var fpsEl = document.createElement("div");
-  fpsEl.id = "fps-meter";
-  fpsEl.setAttribute("aria-hidden", "true");
-  document.body.appendChild(fpsEl);
-  var fpsFrames = 0, fpsLast = null, fpsLastRenderCount = null;
-  (function fpsLoop(now) {
-    requestAnimationFrame(fpsLoop);
-    if (fpsLast === null) { fpsLast = now; return; }
-    fpsFrames++;
-    var dt = now - fpsLast;
-    if (dt >= 500) {
-      var lines = [Math.round(fpsFrames * 1000 / dt) + " fps"];
-      var D = window.__T3D;
-      if (D) {
-        var rps = fpsLastRenderCount === null ? null
-          : Math.round((D.renderCount - fpsLastRenderCount) * 1000 / dt);
-        fpsLastRenderCount = D.renderCount;
-        if (rps === null) lines.push("3D \u2026");
-        else if (rps > 0) {
-          lines.push("3D " + rps + "/s \u00B7 "
-            + (D.renderCount ? (D.renderMsTotal / D.renderCount).toFixed(1) : "0") + "ms/frame"
-            + " \u00B7 bloom " + (D.bloomOn() ? "on" : "OFF"));
-        } else {
-          lines.push("3D idle");
-        }
-      }
-      fpsEl.textContent = lines.join("  \u00B7  ");
-      fpsFrames = 0;
-      fpsLast = now;
-    }
-  })(0);
-  setInterval(function () {
-    if (performance.now() - fpsLast > 2500) {
-      fpsEl.textContent = "frames paused \u00B7 tab hidden";
-    }
-  }, 1000);
 
   /* Raven form: thud on seal press; real send is #8 (blocked by #7). */
   document.getElementById("raven-form").addEventListener("submit", function (ev) {

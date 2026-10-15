@@ -741,21 +741,6 @@ html.no-3d { scroll-snap-type: y proximity; }
   #kindle { right: 14px; bottom: 14px; }
 }
 
-/* ---------- FPS meter (debug tool, owner request 2026-10-07): presented-
-   frame counter + 3D scene counters. Pointer-transparent so it can never
-   eat a click; remove before production. ---------- */
-#fps-meter {
-  position: fixed; top: 8px; left: 8px; z-index: 60;
-  font: 11px/1.4 ui-monospace, Consolas, "Courier New", monospace;
-  letter-spacing: 0.3px;
-  color: var(--parchment-light);
-  background: rgba(20, 16, 11, 0.72);
-  border: 1px solid rgba(232, 213, 163, 0.28);
-  border-radius: 4px;
-  padding: 3px 8px;
-  pointer-events: none;
-  white-space: nowrap;
-}
 
 /* ---------- Reduced motion: show final state, no pulse/flicker ---------- */
 @media (prefers-reduced-motion: reduce) {
