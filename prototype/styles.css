@@ -1,4 +1,85 @@
-/* Prototype — tokens per .tmp/pen-runs/tokens.md (draft) */
+/* Self-hosted fonts (SIL OFL 1.1) */
+@font-face {
+  font-family: 'Cinzel Decorative';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/assets/fonts/cinzel-decorative-v19-latin-400.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Cinzel Decorative';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/assets/fonts/cinzel-decorative-v19-latin-ext-400.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Cinzel Decorative';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/assets/fonts/cinzel-decorative-v19-latin-700.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Cinzel Decorative';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/assets/fonts/cinzel-decorative-v19-latin-ext-700.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Fondamento';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/assets/fonts/fondamento-v22-latin-400.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Fondamento';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/assets/fonts/fondamento-v22-latin-ext-400.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Fondamento';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/assets/fonts/fondamento-v22-latin-italic.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'EB Garamond';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('/assets/fonts/eb-garamond-v33-latin-400-500.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'EB Garamond';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('/assets/fonts/eb-garamond-v33-latin-ext-400-500.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'EB Garamond';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/assets/fonts/eb-garamond-v33-latin-italic.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
   --parchment: #E8D5A3;
   --parchment-light: #F5ECD7;
@@ -19,9 +100,9 @@
    pointing gauntlet as default, open gauntlet on interactives, closed
    fist when pressed. 40px PNG with a 72px 2x tier; suppressed on touch. */
 :root {
-  --cursor-default: url("assets/cursor/gauntlet-point.png") 4 0, default;
-  --cursor-pointer: url("assets/cursor/gauntlet-open.png") 9 0, pointer;
-  --cursor-active: url("assets/cursor/gauntlet-closed.png") 16 2, pointer;
+  --cursor-default: url("/assets/cursor/gauntlet-point.png") 4 0, default;
+  --cursor-pointer: url("/assets/cursor/gauntlet-open.png") 9 0, pointer;
+  --cursor-active: url("/assets/cursor/gauntlet-closed.png") 16 2, pointer;
 }
 
 html, body {
@@ -45,13 +126,13 @@ a:active, button:active, input[type="submit"]:active, .interactive:active, #kind
 /* High-DPI tier: 2x PNGs where cursor image-set() is supported (Chrome). */
 @supports (cursor: image-set(url("x.png") 1x)) {
   html, body {
-    cursor: image-set(url("assets/cursor/gauntlet-point.png") 1x, url("assets/cursor/gauntlet-point-2x.png") 2x) 4 0, default;
+    cursor: image-set(url("/assets/cursor/gauntlet-point.png") 1x, url("/assets/cursor/gauntlet-point-2x.png") 2x) 4 0, default;
   }
   a, button, input[type="submit"], .interactive, #kindle, .seal-interactive {
-    cursor: image-set(url("assets/cursor/gauntlet-open.png") 1x, url("assets/cursor/gauntlet-open-2x.png") 2x) 9 0, pointer;
+    cursor: image-set(url("/assets/cursor/gauntlet-open.png") 1x, url("/assets/cursor/gauntlet-open-2x.png") 2x) 9 0, pointer;
   }
   a:active, button:active, input[type="submit"]:active, .interactive:active, #kindle:active, .seal-interactive:active {
-    cursor: image-set(url("assets/cursor/gauntlet-closed.png") 1x, url("assets/cursor/gauntlet-closed-2x.png") 2x) 16 2, pointer;
+    cursor: image-set(url("/assets/cursor/gauntlet-closed.png") 1x, url("/assets/cursor/gauntlet-closed-2x.png") 2x) 16 2, pointer;
   }
 }
 /* MANDATORY by default (user iterate: "going from one section should
@@ -79,7 +160,7 @@ body {
   position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background-image:
     linear-gradient(rgba(16, 9, 4, 0.42), rgba(10, 6, 3, 0.6)),
-    url("../.tmp/pen-runs/assets/pbr/wood-wood051/Wood051_color_1K.jpg");
+    url("/assets/textures/pbr/wood-wood051/Wood051_color_1K.jpg");
   background-size: cover, 1024px;
   filter: brightness(0.72) saturate(1.12) contrast(1.05);
 }
@@ -214,9 +295,9 @@ html.no-3d .desk-zone { display: none; }
   background: var(--night);
   color: var(--parchment-light);
   display: flex; align-items: center; justify-content: center;
-  transition: opacity 600ms ease;
+  transition: opacity 280ms cubic-bezier(0.16, 1, 0.3, 1), visibility 280ms;
 }
-#loader.gone { opacity: 0; pointer-events: none; }
+#loader.gone { opacity: 0; visibility: hidden; pointer-events: none; }
 .loader-inner { text-align: center; font-size: 18px; letter-spacing: 1px; }
 .loader-sigil {
   width: 56px; height: 56px; margin: 0 auto 16px;
@@ -330,7 +411,7 @@ html:not(.intro-done):not(.no-3d) .column {
    never double up. */
 .column::before {
   content: ""; position: absolute; inset: 0; pointer-events: none;
-  background-image: url("../.tmp/pen-runs/assets/paper002-color.jpg");
+  background-image: url("/assets/textures/paper002-color.jpg");
   background-size: 1024px;
   opacity: 0.38;
 }

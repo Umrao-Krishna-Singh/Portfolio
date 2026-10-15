@@ -6,10 +6,11 @@
 <meta name="darkreader-lock">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23F5ECD7'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23FF9A2A' stroke-width='3'/%3E%3C/svg%3E">
 <title>Umrao Krishna Singh — Scribe of Interactive Tapestries</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Fondamento&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=39">
+<link rel="preload" href="/assets/fonts/cinzel-decorative-v19-latin-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/cinzel-decorative-v19-latin-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/fondamento-v22-latin-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/eb-garamond-v33-latin-400-500.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
@@ -69,7 +70,7 @@
     <section class="pull" id="hero" data-pull="I">
       <div class="hero-grid">
         <figure class="hero-figure ink-reveal">
-          <img src="../.tmp/pen-runs/assets/hero-chalk.jpg" alt="Placeholder chalk-sketch portrait" width="536" height="625">
+          <img src="/assets/textures/hero-chalk.jpg" alt="Placeholder chalk-sketch portrait" width="536" height="625">
         </figure>
         <div class="hero-text">
           <p class="eyebrow ember-reveal">Placeholder &middot; hero</p>
@@ -205,16 +206,25 @@
      addons (bloom) come from the same pinned package via three/addons/. -->
 <div id="gl" aria-hidden="true"><canvas id="gl-canvas"></canvas></div>
 <script type="importmap">
-{"imports":{
-  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js",
-  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-}}
+{
+  "imports": {
+    "three": "/vendor/three/three.module.min.js",
+    "three/addons/": "/vendor/three/addons/"
+  }
+}
 </script>
-<script type="module" src="scene.js?v=64"></script>
+<link rel="modulepreload" href="/vendor/three/three.module.min.js">
+<link rel="modulepreload" href="/vendor/three/addons/postprocessing/EffectComposer.js">
+<link rel="modulepreload" href="/vendor/three/addons/postprocessing/Pass.js">
+<link rel="modulepreload" href="/vendor/three/addons/postprocessing/RenderPass.js">
+<link rel="modulepreload" href="/vendor/three/addons/postprocessing/ShaderPass.js">
+<link rel="modulepreload" href="/vendor/three/addons/postprocessing/UnrealBloomPass.js">
+<link rel="modulepreload" href="/vendor/three/addons/postprocessing/OutputPass.js">
+<script type="module" src="scene.js"></script>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.13.0/gsap.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.13.0/ScrollTrigger.min.js"></script>
-<script src="parchment.js?v=30"></script>
-<script src="app.js?v=39"></script>
+<script src="/vendor/gsap/gsap.min.js"></script>
+<script src="/vendor/gsap/ScrollTrigger.min.js"></script>
+<script src="parchment.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

@@ -17,7 +17,7 @@
     };
   }
 
-  var GRAIN_SRC = "../.tmp/pen-runs/assets/paper002-color.jpg";
+  var GRAIN_SRC = "/assets/textures/paper002-color.jpg";
   var grainImg = null;
   var grainReady = null;
   function loadGrain() {
@@ -31,14 +31,11 @@
     return grainReady;
   }
 
-  /* Base paper: warm parchment field, photo grain, foxing, creases,
-     deckled dark edges, optional scorch marks at given y positions. */
-  function base(w, h, opts) {
+  /* Pure procedural base paper painter (deterministic mulberry32 RNG).
+     Works identically on CanvasRenderingContext2D and OffscreenCanvasRenderingContext2D. */
+  function renderBase(g, w, h, opts, grain) {
     opts = opts || {};
     var rnd = mulberry32(opts.seed || 7);
-    var c = document.createElement("canvas");
-    c.width = w; c.height = h;
-    var g = c.getContext("2d");
 
     var grad = g.createLinearGradient(0, 0, w * 0.3, h);
     grad.addColorStop(0, "#F2E6C4");
@@ -47,11 +44,11 @@
     g.fillStyle = grad;
     g.fillRect(0, 0, w, h);
 
-    if (grainImg) {
+    if (grain) {
       g.globalAlpha = 0.34;
-      var gw = grainImg.width, gh = grainImg.height;
+      var gw = grain.width, gh = grain.height;
       for (var y = 0; y < h; y += gh) {
-        for (var x = 0; x < w; x += gw) g.drawImage(grainImg, x, y);
+        for (var x = 0; x < w; x += gw) g.drawImage(grain, x, y);
       }
       g.globalAlpha = 1;
     }
@@ -114,19 +111,14 @@
       g.stroke();
     }
 
-    /* Aged edges (user round 5 #8; intensified round 5b "increase age"):
-       banded browning hugging the rim, corner blooms, and fine wear
-       flecks along the borders — the patina of a handled sheet. opts.age
-       scales it (0 off, default 1). All one-time canvas paint: the bake
-       runs at load, and the runtime GPU cost is ZERO (same texture,
-       same shader, already uploaded). */
+    /* Aged edges: banded browning hugging the rim, corner blooms, wear flecks. */
     var age = opts.age === undefined ? 1 : opts.age;
     if (age > 0) {
       var band = Math.max(14, w * 0.065);
-      var bandGrad = function (x0, y0, x1, y1, a) {
+      var bandGrad = function (x0, y0, x1, y1, a2) {
         var bg = g.createLinearGradient(x0, y0, x1, y1);
-        bg.addColorStop(0, "rgba(92,58,20," + (a * age).toFixed(3) + ")");
-        bg.addColorStop(0.55, "rgba(92,58,20," + (a * age * 0.45).toFixed(3) + ")");
+        bg.addColorStop(0, "rgba(92,58,20," + (a2 * age).toFixed(3) + ")");
+        bg.addColorStop(0.55, "rgba(92,58,20," + (a2 * age * 0.45).toFixed(3) + ")");
         bg.addColorStop(1, "rgba(92,58,20,0)");
         return bg;
       };
@@ -145,8 +137,7 @@
         g.fillStyle = cg;
         g.beginPath(); g.arc(cn[0], cn[1], cr, 0, 6.283); g.fill();
       });
-      /* Wear flecks: tiny light/dark nicks scattered along the rim,
-         denser the closer they sit to the edge (handling wear). */
+      /* Wear flecks. */
       var per = 2 * (w + h);
       var flecks = Math.round(per * 0.8 * age);
       for (var f2 = 0; f2 < flecks; f2++) {
@@ -180,9 +171,7 @@
       });
     });
 
-    /* Candlelight grade: warm center, darker aged falloff at the far
-       edges — the same falloff the 3D desk gets from its lights, so DOM
-       column and 3D sheet crossfade as one surface. */
+    /* Candlelight grade. */
     var vg = g.createRadialGradient(
       w * 0.5, h * 0.42, Math.min(w, h) * 0.3,
       w * 0.5, h * 0.5, Math.max(w, h) * 0.72);
@@ -191,7 +180,14 @@
     vg.addColorStop(1, "rgba(56,30,8,0.24)");
     g.fillStyle = vg;
     g.fillRect(0, 0, w, h);
+  }
 
+  /* Base paper: synchronous wrapper for callers needing an immediate canvas. */
+  function base(w, h, opts) {
+    var c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    var g = c.getContext("2d");
+    renderBase(g, w, h, opts, grainImg);
     return c;
   }
 
@@ -558,26 +554,129 @@
     }));
   }
 
+  /* ---------- Web Worker bake pipeline (ADR-0008, Issue #17) ---------- */
+  var bakeWorker = null;
+  var nextJobId = 1;
+  var jobs = {};
+  var activeByTarget = {};
+
+  function getWorker() {
+    if (bakeWorker) return bakeWorker;
+    if (typeof Worker === "undefined" || typeof OffscreenCanvas === "undefined") return null;
+    try {
+      bakeWorker = new Worker("parchment.worker.js");
+      bakeWorker.onmessage = function (e) {
+        var msg = e.data;
+        var job = jobs[msg.id];
+        if (!job) return;
+        delete jobs[msg.id];
+        if (msg.target && activeByTarget[msg.target] === msg.id) {
+          delete activeByTarget[msg.target];
+        }
+        if (job.cancelled) {
+          if (msg.bitmap) { try { msg.bitmap.close(); } catch (_) {} }
+          return;
+        }
+        if (msg.error) {
+          job.reject(new Error(msg.error));
+          return;
+        }
+        var c = document.createElement("canvas");
+        c.width = msg.width;
+        c.height = msg.height;
+        var ctx = c.getContext("2d");
+        ctx.drawImage(msg.bitmap, 0, 0);
+        try { msg.bitmap.close(); } catch (_) {}
+        job.resolve({ canvas: c, width: msg.width, height: msg.height });
+      };
+      bakeWorker.onerror = function () {
+        bakeWorker = null;
+      };
+    } catch (_) {
+      bakeWorker = null;
+    }
+    return bakeWorker;
+  }
+
+  /* One unified entry point for parchment generation.
+     spec: {
+       type: "base" (default) | "layout",
+       target: string (optional category for auto-cancelling superseded bakes, e.g. "column"),
+       width: number,
+       height: number,
+       opts: object { seed, age, marks },
+       blocks: array (if type === "layout")
+     } */
+  function bake(spec) {
+    spec = spec || {};
+    var type = spec.type || "base";
+    var target = spec.target || "default";
+    var w = spec.width || 768;
+    var h = spec.height || 1024;
+    var opts = spec.opts || {};
+    if (spec.seed !== undefined) opts.seed = spec.seed;
+    if (spec.age !== undefined) opts.age = spec.age;
+    if (spec.marks !== undefined) opts.marks = spec.marks;
+
+    if (type === "base") {
+      /* Cancel previous in-flight bake for this target */
+      if (activeByTarget[target]) {
+        var prevId = activeByTarget[target];
+        if (jobs[prevId]) jobs[prevId].cancelled = true;
+      }
+
+      var wkr = getWorker();
+      if (wkr) {
+        return new Promise(function (resolve, reject) {
+          var id = nextJobId++;
+          activeByTarget[target] = id;
+          jobs[id] = { resolve: resolve, reject: reject, cancelled: false };
+          wkr.postMessage({
+            id: id,
+            target: target,
+            width: w,
+            height: h,
+            opts: opts
+          });
+        });
+      }
+
+      /* Fallback: synchronous paint on main thread */
+      return loadGrain().then(function () {
+        var c = base(w, h, opts);
+        return { canvas: c, width: w, height: h };
+      });
+    }
+
+    /* type === "layout" (for 3D sheet) */
+    return loadGrain()
+      .then(function () { return fonts(); })
+      .then(function () {
+        return layout(spec.blocks, w, opts);
+      });
+  }
+
+  function fonts() {
+    var loads = [];
+    if (document.fonts && document.fonts.load) {
+      loads = [
+        document.fonts.load('700 20px "Cinzel Decorative"'),
+        document.fonts.load('400 20px "Fondamento"'),
+        document.fonts.load('400 20px "EB Garamond"')
+      ];
+    }
+    return Promise.all(loads).catch(function () {}).then(function () {
+      return (document.fonts && document.fonts.ready) ? document.fonts.ready : null;
+    });
+  }
+
   window.Parchment = {
+    bake: bake,
     base: base,
+    renderBase: renderBase,
     layout: layout,
     preload: preload,
     loadGrain: loadGrain,
-    /* document.fonts.ready only covers faces the DOM already requested —
-       the bake draws Cinzel Decorative at weights the page never uses,
-       so load them explicitly or the sheet renders a fallback serif. */
-    fonts: function () {
-      var loads = [];
-      if (document.fonts && document.fonts.load) {
-        loads = [
-          document.fonts.load('700 20px "Cinzel Decorative"'),
-          document.fonts.load('400 20px "Fondamento"'),
-          document.fonts.load('400 20px "EB Garamond"')
-        ];
-      }
-      return Promise.all(loads).catch(function () {}).then(function () {
-        return (document.fonts && document.fonts.ready) ? document.fonts.ready : null;
-      });
-    }
+    fonts: fonts
   };
 })();

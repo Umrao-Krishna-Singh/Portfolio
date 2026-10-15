@@ -87,7 +87,7 @@
       role: "Placeholder role",
       runes: ["Three.js", "GSAP", "Web Audio"],
       tale: "Placeholder tale line one. Placeholder tale line two.",
-      img: "../.tmp/pen-runs/assets/quest-castle.jpg",
+      img: "/assets/textures/quest-castle.jpg",
       alt: "Placeholder quest sketch, black and white"
     },
     {
@@ -97,7 +97,7 @@
       role: "Placeholder role",
       runes: ["Three.js", "GSAP", "Web Audio"],
       tale: "Placeholder tale line one. Placeholder tale line two.",
-      img: "../.tmp/pen-runs/assets/quest-breviary.jpg",
+      img: "/assets/textures/quest-breviary.jpg",
       alt: "Placeholder quest sketch, black and white"
     }
   ];
@@ -321,6 +321,23 @@
     this._novaBusNode = cp;
     return cp;
   };
+  Engine.prototype.preloadMusic = function () {
+    if (this._trackBuf || this._trackLoading) return;
+    if (!this.ctx) this.init();
+    if (!this.ctx) return;
+    var that = this;
+    this._trackLoading = true;
+    fetch("/assets/audio/The_Bards_Tale_v3.opus")
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.arrayBuffer(); })
+      .then(function (ab) { return that.ctx.decodeAudioData(ab); })
+      .then(function (buf) {
+        that._trackLoading = false;
+        that._trackBuf = buf;
+      })
+      .catch(function () {
+        that._trackLoading = false;
+      });
+  };
   Engine.prototype.kindleMusic = function (fadeDuration) {
     /* Dispatcher: the Bard's Tale track is the kindled music; the
        generative harp is the fallback. Re-kindling mid-fetch must not
@@ -335,7 +352,7 @@
        means silence, never the old harp. */
     var that = this;
     this._trackLoading = true;
-    fetch("../.tmp/pen-runs/assets/The_Bards_Tale_v3.opus")
+    fetch("/assets/audio/The_Bards_Tale_v3.opus")
       .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.arrayBuffer(); })
       .then(function (ab) { return that.ctx.decodeAudioData(ab); })
       .then(function (buf) {
@@ -1137,7 +1154,7 @@
       return (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
     }
     var heroImg = new Image();
-    heroImg.src = "../.tmp/pen-runs/assets/hero-chalk.jpg";
+    heroImg.src = "/assets/textures/hero-chalk.jpg";
     /* Gate labels read from the DOM — the sheet never paraphrases. */
     var ctas = [];
     document.querySelectorAll("#hero .cta-row .cta").forEach(function (a) {
@@ -1232,20 +1249,28 @@
           while (el && el !== col) { t += el.offsetTop; el = el.offsetParent; }
           marks.push(((t - col.offsetTop) / Math.max(1, col.scrollHeight)) * h);
         });
-        var c = window.Parchment.base(w, h, { seed: 7, marks: marks });
         col.dataset.bgH = String(h);
-        c.toBlob(function (blob) {
-          if (!blob) return;
-          /* Revoke the previous bake so successive layouts don't leak. */
-          if (col.dataset.bgUrl) {
-            try { URL.revokeObjectURL(col.dataset.bgUrl); } catch (e) {}
-          }
-          var url = URL.createObjectURL(blob);
-          col.dataset.bgUrl = url;
-          col.style.backgroundImage = 'url("' + url + '")';
-          col.style.backgroundSize = "100% 100%";
-          col.classList.add("textured");
-        }, "image/jpeg", 0.92);
+        window.Parchment.bake({
+          type: "base",
+          target: "column",
+          width: w,
+          height: h,
+          opts: { seed: 7, marks: marks }
+        }).then(function (res) {
+          if (!res || !res.canvas) return;
+          res.canvas.toBlob(function (blob) {
+            if (!blob) return;
+            /* Revoke the previous bake so successive layouts don't leak. */
+            if (col.dataset.bgUrl) {
+              try { URL.revokeObjectURL(col.dataset.bgUrl); } catch (e) {}
+            }
+            var url = URL.createObjectURL(blob);
+            col.dataset.bgUrl = url;
+            col.style.backgroundImage = 'url("' + url + '")';
+            col.style.backgroundSize = "100% 100%";
+            col.classList.add("textured");
+          }, "image/jpeg", 0.92);
+        }).catch(function () {});
       })
       .catch(function () {});
   }
@@ -1314,10 +1339,8 @@
   }
   window.addEventListener("load", function () {
     /* Re-bake only if the column's aspect changed since the boot bake
-       (late images shifting layout). A re-bake is the same 300-700ms
-       synchronous paint — mid-intro it freezes the unroll, so if the
-       intro is still in flight it defers to handoff + 1.6s (the ignite
-       churn has settled by then). */
+       (late images shifting layout). Worker-backed bake runs in the
+       background thread without freezing rAF or the 3D unroll. */
     var col = document.querySelector(".column");
     if (!col) return;
     var hadH = parseInt(col.dataset.bgH || "0", 10);
@@ -1326,13 +1349,7 @@
         Math.round(col.scrollHeight * 768 / Math.max(1, col.clientWidth))));
       if (Math.abs(wantH - hadH) <= hadH * 0.02) return;
     }
-    if (window.__INTRO_STATE && window.__INTRO_STATE !== "handoff-done") {
-      window.addEventListener("tapestry:handoff", function () {
-        setTimeout(textureColumn, 1600);
-      }, { once: true });
-    } else {
-      textureColumn();
-    }
+    textureColumn();
   });
 
   initKindle();
@@ -1343,6 +1360,8 @@
      (critic P1). */
   window.addEventListener("pointerdown", function unlock() {
     engine.unlock();
+    /* Adopted C5: Pre-decode music buffer in background on first interaction */
+    engine.preloadMusic();
     if (kindleOn) {
       engine.kindleMusic();
       engine.setMaster(true);
@@ -1666,6 +1685,9 @@
     novaBoom: function () {
       engine.unlock();
       engine.novaBoom();
+    },
+    preloadMusic: function () {
+      engine.preloadMusic();
     },
     kindleAfterSeal: function () {
       kindleOn = true;

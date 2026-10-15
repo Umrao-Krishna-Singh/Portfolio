@@ -10,6 +10,11 @@
    NO quality watchdog (owner 2026-10-13): one fixed quality all session.
    Skips: reduced-motion, mobile UA (ADR-0015), no gsap, no WebGL (DOM stands alone). */
 import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 window.THREE = THREE;
 
 (function () {
@@ -82,7 +87,12 @@ window.THREE = THREE;
     e.preventDefault();
     teardown();
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  var nativeDpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  /* Motion DPR: during rapid camera dolly and unroll motion, rendering at
+     0.82 scale provides a noticeable ~33% reduction in GPU fill-rate.
+     Full native DPR is restored upon handoff when stationary. */
+  var introDpr = Math.min(nativeDpr, 0.82);
+  renderer.setPixelRatio(introDpr);
   renderer.setSize(window.innerWidth, window.innerHeight);
   /* NO shadow map at all (owner 2026-10-13: "remove the candle shadow
      from the left candle entirely, I don't want it") — and the left
@@ -216,48 +226,30 @@ window.THREE = THREE;
     });
   }
 
-  Promise.all([
-    import("three/addons/postprocessing/EffectComposer.js"),
-    import("three/addons/postprocessing/RenderPass.js"),
-    import("three/addons/postprocessing/UnrealBloomPass.js"),
-    import("three/addons/postprocessing/OutputPass.js"),
-    import("three/addons/postprocessing/ShaderPass.js")
-  ]).then(function (m) {
-    var EffectComposer = m[0].EffectComposer, RenderPass = m[1].RenderPass;
-    var UnrealBloomPass = m[2].UnrealBloomPass, OutputPass = m[3].OutputPass;
-    var ShaderPass = m[4].ShaderPass;
-    /* Adopt only before the intro starts — a grade change mid-dolly is
-       itself a seam (critic pass 2). The first composer render (bloom's
-       render targets + shader compile) happens HERE, behind the loader,
-       so the user never sees the hitch (choppy-start fix). */
-    if (!introStarted) {
-      composer = new EffectComposer(renderer);
-      composer.addPass(new RenderPass(scene, camera));
-      bloomPass = new UnrealBloomPass(
-        new THREE.Vector2(window.innerWidth, window.innerHeight), 0.25, 0.4, 1.5);
-      composer.addPass(bloomPass);
-      composer.addPass(new OutputPass());
-      if (ShaderPass) sealFxBuildNovaCompose(ShaderPass);
-      composer.setSize(window.innerWidth, window.innerHeight);
-      /* Half-res bloom: a blur cannot lose detail at half res, and the
-         fill saving is the biggest single live-frame win (bench knobs,
-         2026-10-14). MUST run after composer.setSize — the composer
-         propagates its own size to every pass. Kept at half on resize
-         too (see the resize handler). */
-      bloomPass.setSize(
-        Math.max(2, Math.round(window.innerWidth * 0.5)),
-        Math.max(2, Math.round(window.innerHeight * 0.5)));
-      /* The first composer render must see everything the intro will
-         reveal: compile/renders only touch VISIBLE objects, and the
-         sheet plane + head rod sit hidden while open=0 — their first
-         visible frame would otherwise be the unroll's first frame
-         (user: intro "gets stuck once the roll starts"). */
-      warmHidden(true);
-      composer.render();
-      warmHidden(false);
+  try {
+    composer = new EffectComposer(renderer);
+    if (typeof composer.setPixelRatio === "function") {
+      composer.setPixelRatio(renderer.getPixelRatio());
     }
+    composer.addPass(new RenderPass(scene, camera));
+    bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight), 0.25, 0.4, 1.5);
+    composer.addPass(bloomPass);
+    composer.addPass(new OutputPass());
+    if (typeof ShaderPass !== "undefined") sealFxBuildNovaCompose(ShaderPass);
+    composer.setSize(window.innerWidth, window.innerHeight);
+    bloomPass.setSize(
+      Math.max(2, Math.round(window.innerWidth * 0.5)),
+      Math.max(2, Math.round(window.innerHeight * 0.5)));
+    warmHidden(true);
+    composer.render();
+    warmHidden(false);
     composerReady = true;
-  }).catch(function () { composer = null; composerReady = true; });
+  } catch (e) {
+    if (window.console && console.warn) console.warn("[tapestry3d] composer init fallback:", e);
+    composer = null;
+    composerReady = true;
+  }
 
   /* Show/hide the not-yet-unrolled sheet parts for warm passes. The 1px
      sliver renders only behind the opaque loader. */
@@ -376,9 +368,9 @@ window.THREE = THREE;
      fallback if the files are missing. ---------- */
   var PBR = {
     wood: {
-      color: "../.tmp/pen-runs/assets/pbr/wood-wood051/Wood051_color_1K.jpg",
-      normal: "../.tmp/pen-runs/assets/pbr/wood-wood051/Wood051_normal_gl_1K.jpg",
-      roughness: "../.tmp/pen-runs/assets/pbr/wood-wood051/Wood051_roughness_1K.jpg"
+      color: "/assets/textures/pbr/wood-wood051/Wood051_color_1K.jpg",
+      normal: "/assets/textures/pbr/wood-wood051/Wood051_normal_gl_1K.jpg",
+      roughness: "/assets/textures/pbr/wood-wood051/Wood051_roughness_1K.jpg"
     }
   };
   var loader = new THREE.TextureLoader();
@@ -394,7 +386,7 @@ window.THREE = THREE;
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     return t;
   }
-  var woodMap = tex((PBR && PBR.wood && PBR.wood.color) || "../.tmp/pen-runs/assets/wood051-color.jpg", 2, 2);
+  var woodMap = tex((PBR && PBR.wood && PBR.wood.color) || "/assets/textures/wood051-color.jpg", 2, 2);
   var woodNormal = (PBR && PBR.wood && PBR.wood.normal) ? dataTex(PBR.wood.normal) : null;
   var woodRough = (PBR && PBR.wood && PBR.wood.roughness) ? dataTex(PBR.wood.roughness) : null;
   var tableMat = new THREE.MeshStandardMaterial({ map: woodMap, color: PBR ? 0xa8845c : 0x96754d, roughness: 0.82 });
@@ -421,6 +413,16 @@ window.THREE = THREE;
   var planeGeo = new THREE.PlaneGeometry(TW, TH, 4, 28);
   planeGeo.translate(0, -TH / 2, 0);
   var base = planeGeo.attributes.position.array.slice();
+  var drapeCount = planeGeo.attributes.position.count;
+  var staticDrape = new Float32Array(drapeCount);
+  for (var di = 0; di < drapeCount; di++) {
+    var dx = base[di * 3];
+    var dy = base[di * 3 + 1];
+    var de = dx / (TW / 2);
+    staticDrape[di] = 0.022 * Math.sin(dy * 2.3 + dx * 0.8) +
+                      0.014 * Math.sin(dy * 4.9 - dx * 1.4 + 1.7) +
+                      0.028 * de * de;
+  }
   var plane = new THREE.Mesh(planeGeo, planeMat);
   plane.rotation.x = -Math.PI / 2;
   plane.position.set(0, 0.06, TOPZ);
@@ -462,11 +464,13 @@ window.THREE = THREE;
             var cs = 1280 / colEl.clientWidth;
             blocks.forEach(function (b) { if (b.t === "cap") b.h = Math.round(b.h * cs); });
           }
-          canvas2 = window.Parchment.layout(blocks, 1280).canvas;
+          var baked = await window.Parchment.bake({ type: "layout", blocks: blocks, width: 1280, target: "sheet" });
+          canvas2 = baked.canvas;
         } else {
-          canvas2 = window.Parchment
-            ? window.Parchment.base(1280, 1760, { seed: 7 })
-            : document.createElement("canvas");
+          var baked = window.Parchment
+            ? await window.Parchment.bake({ type: "base", width: 1280, height: 1760, opts: { seed: 7 }, target: "sheet" })
+            : { canvas: document.createElement("canvas"), height: 1760 };
+          canvas2 = baked.canvas;
         }
         var t = new THREE.CanvasTexture(canvas2);
         t.colorSpace = THREE.SRGBColorSpace;
@@ -489,7 +493,7 @@ window.THREE = THREE;
       } catch (e) { if (attempt) return; }
     }
   }
-  buildSheet();
+  var sheetPromise = buildSheet();
 
   /* The scroll's rods must READ at the 45° down-look (user: "the top
      roll is still not there"): warm mid-brown instead of near-black, a
@@ -1269,9 +1273,11 @@ window.THREE = THREE;
     shader.fragmentShader = shader.fragmentShader.replace(
       "#include <emissivemap_fragment>",
       ["#include <emissivemap_fragment>",
-       "float novaD = distance(vNovaWP.xz, uNovaXZ);",
-       "float novaHit = smoothstep(uNovaFrontM, uNovaFrontM - 0.9, novaD);",
-       "totalEmissiveRadiance += uNovaColor * uNovaG * novaHit;"].join("\n")
+       "if (uNovaG > 0.001) {",
+       "  float novaD = distance(vNovaWP.xz, uNovaXZ);",
+       "  float novaHit = smoothstep(uNovaFrontM, uNovaFrontM - 0.9, novaD);",
+       "  totalEmissiveRadiance += uNovaColor * uNovaG * novaHit;",
+       "}"].join("\n")
     );
   };
 
@@ -1626,11 +1632,11 @@ window.THREE = THREE;
       novaCompose.uniforms.uAspect.value = window.innerWidth / Math.max(1, window.innerHeight);
       novaCompose.uniforms.uMetersPerUv.value =
         2 * Math.tan(camera.fov * Math.PI / 360) * camera.position.distanceTo(sealOrigin);
-      novaCompose.uniforms.uFront.value = front * 1.1;
-      novaCompose.uniforms.uFloodE.value =
-        1.05 * novaSmooth(0.09, 0.2, clk) * Math.exp(-Math.max(0, clk - 0.9) * 2.0);
-      novaCompose.uniforms.uCoreGlow.value =
-        1.15 * novaSmooth(0, 0.03, clk) * Math.exp(-clk * 2.9);
+      var nFloodE = 1.05 * novaSmooth(0.09, 0.2, clk) * Math.exp(-Math.max(0, clk - 0.9) * 2.0);
+      var nCoreGlow = 1.15 * novaSmooth(0, 0.03, clk) * Math.exp(-clk * 2.9);
+      novaCompose.uniforms.uFloodE.value = nFloodE;
+      novaCompose.uniforms.uCoreGlow.value = nCoreGlow;
+      novaCompose.enabled = (nFloodE > 0.001 || nCoreGlow > 0.001);
     }
 
     if (dt > 0) {
@@ -1843,6 +1849,7 @@ window.THREE = THREE;
        the visual fracture at the end of the pull-back, so sound and
        picture land on the same frame. */
     if (T && T.unlockAudio) T.unlockAudio();
+    if (T && T.preloadMusic) T.preloadMusic();
 
     var sealTriggerBtn = document.getElementById("seal-trigger");
     if (sealTriggerBtn) sealTriggerBtn.hidden = true;
@@ -1976,21 +1983,19 @@ window.THREE = THREE;
     plane.visible = open > 0.01;
     var pos = planeGeo.attributes.position;
     for (var i = 0; i < pos.count; i++) {
-      var x = base[i * 3];
-      var y = base[i * 3 + 1];
-      var d = y + TH * open; /* distance ahead of the moving edge */
+      var d = base[i * 3 + 1] + TH * open; /* distance ahead of the moving edge */
+      var d2 = d * d;
       /* Peel curl: tight and low, hugging the roll — not a traveling wave. */
-      var z = 0.38 * Math.exp(-(d * d) / 0.12) * open;
-      /* Gentle static drape so the sheet never reads as a flat decal. */
-      z += 0.022 * Math.sin(y * 2.3 + x * 0.8) * open;
-      z += 0.014 * Math.sin(y * 4.9 - x * 1.4 + 1.7) * open;
-      /* Faint lift along the long edges, like real paper relaxes. */
-      var e = x / (TW / 2);
-      z += 0.028 * e * e * open;
+      var curl = d2 < 1.4 ? 0.38 * Math.exp(-d2 / 0.12) : 0;
+      /* Gentle precomputed static drape so the sheet never reads as a flat decal. */
+      var z = (curl + staticDrape[i]) * open;
       pos.setZ(i, base[i * 3 + 2] + z);
     }
     pos.needsUpdate = true;
-    planeGeo.computeVertexNormals();
+    /* Compute normal on rest or throttled during active motion */
+    if (open >= 0.99 || (Math.round(open * 100) % 6 === 0)) {
+      planeGeo.computeVertexNormals();
+    }
   }
 
   /* ---------- Candles: iron tripod + tall wax + drips + GLSL flames ---
@@ -2146,59 +2151,50 @@ window.THREE = THREE;
     emissive: 0xff9a3c, emissiveIntensity: 0.16, emissiveMap: waxTex.glow
   });
   /* Fake SSS on top: wrapped diffuse + the GDC-2011 back-transmittance
-     term, injected by patching the r160 lights chunk at compile time. The
-     chunk text is imported from the SAME pinned package (no hardcoded
-     copy to drift), and the patch is skipped cleanly if it ever fails. */
-  waxMat.customProgramCacheKey = function () { return "wax-plain"; };
-  import(
-    "https://cdn.jsdelivr.net/npm/three@0.160.0/src/renderers/shaders/ShaderChunk/lights_fragment_begin.glsl.js"
-  ).then(function (m) {
-    var patched = String(m.default).replace(/RE_Direct\(/g, "RE_Direct_Wax(");
-    waxMat.onBeforeCompile = function (shader) {
-      shader.uniforms.uWrap = { value: 0.5 };
-      shader.uniforms.uWrapStrength = { value: 0.35 };
-      shader.uniforms.uTransPower = { value: 2.0 };
-      shader.uniforms.uTransScale = { value: 0.8 };
-      shader.uniforms.uThickness = { value: 0.45 };
-      /* The wrapper (uniforms + function) must live at GLOBAL scope —
-         lights_fragment_begin sits INSIDE main(), where declarations are
-         illegal. Appending after lights_physical_pars_fragment puts it
-         after RE_Direct's own definition and before main. */
-      shader.fragmentShader = shader.fragmentShader.replace(
+     term, injected by patching the r160 lights chunk at compile time.
+     THREE.ShaderChunk.lights_fragment_begin is synchronous in memory,
+     eliminating all runtime CDN imports. */
+  var patched = THREE.ShaderChunk.lights_fragment_begin.replace(/RE_Direct\(/g, "RE_Direct_Wax(");
+  waxMat.onBeforeCompile = function (shader) {
+    shader.uniforms.uWrap = { value: 0.5 };
+    shader.uniforms.uWrapStrength = { value: 0.35 };
+    shader.uniforms.uTransPower = { value: 2.0 };
+    shader.uniforms.uTransScale = { value: 0.8 };
+    shader.uniforms.uThickness = { value: 0.45 };
+    /* The wrapper (uniforms + function) must live at GLOBAL scope —
+       lights_fragment_begin sits INSIDE main(), where declarations are
+       illegal. Appending after lights_physical_pars_fragment puts it
+       after RE_Direct's own definition and before main. */
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <lights_physical_pars_fragment>",
+      [
         "#include <lights_physical_pars_fragment>",
-        [
-          "#include <lights_physical_pars_fragment>",
-          "uniform float uWrap, uWrapStrength, uTransPower, uTransScale, uThickness;",
-          "void RE_Direct_Wax( const in IncidentLight directLight,",
-          "    const in vec3 geometryPosition, const in vec3 geometryNormal,",
-          "    const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal,",
-          "    const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {",
-          "  RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir,",
-          "             geometryClearcoatNormal, material, reflectedLight );",
-          "  float dotNL = dot( geometryNormal, directLight.direction );",
-          "  float wrapped = saturate( ( dotNL + uWrap ) / ( 1.0 + uWrap ) );",
-          "  float lambert = saturate( dotNL );",
-          "  reflectedLight.directDiffuse += directLight.color",
-          "    * BRDF_Lambert( material.diffuseColor )",
-          "    * ( wrapped - lambert ) * uWrapStrength;",
-          "  vec3 scatteringHalf = normalize( directLight.direction + ( geometryNormal * 0.4 ) );",
-          "  float scatteringDot = pow( saturate( dot( geometryViewDir, -scatteringHalf ) ), uTransPower ) * uTransScale;",
-          "  reflectedLight.directDiffuse += ( scatteringDot + 0.05 ) * uThickness",
-          "    * directLight.color * material.diffuseColor;",
-          "}"
-        ].join("\n")
-      );
-      /* Inside main: route the chunk's light calls through the wrapper. */
-      shader.fragmentShader = shader.fragmentShader.replace(
-        "#include <lights_fragment_begin>", patched
-      );
-    };
-    waxMat.customProgramCacheKey = function () { return "wax-sss-v1"; };
-    /* Bump the key when the patch lands: a compile that happened before
-       this moment cached an UNPATCHED program under the old key — reusing
-       it would silently drop the SSS for the session (critic P2). */
-    waxMat.needsUpdate = true;
-  }).catch(function () { /* plain physical wax is still a big upgrade */ });
+        "uniform float uWrap, uWrapStrength, uTransPower, uTransScale, uThickness;",
+        "void RE_Direct_Wax( const in IncidentLight directLight,",
+        "    const in vec3 geometryPosition, const in vec3 geometryNormal,",
+        "    const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal,",
+        "    const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {",
+        "  RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir,",
+        "             geometryClearcoatNormal, material, reflectedLight );",
+        "  float dotNL = dot( geometryNormal, directLight.direction );",
+        "  float wrapped = saturate( ( dotNL + uWrap ) / ( 1.0 + uWrap ) );",
+        "  float lambert = saturate( dotNL );",
+        "  reflectedLight.directDiffuse += directLight.color",
+        "    * BRDF_Lambert( material.diffuseColor )",
+        "    * ( wrapped - lambert ) * uWrapStrength;",
+        "  vec3 scatteringHalf = normalize( directLight.direction + ( geometryNormal * 0.4 ) );",
+        "  float scatteringDot = pow( saturate( dot( geometryViewDir, -scatteringHalf ) ), uTransPower ) * uTransScale;",
+        "  reflectedLight.directDiffuse += ( scatteringDot + 0.05 ) * uThickness",
+        "    * directLight.color * material.diffuseColor;",
+        "}"
+      ].join("\n")
+    );
+    /* Inside main: route the chunk's light calls through the wrapper. */
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <lights_fragment_begin>", patched
+    );
+  };
+  waxMat.customProgramCacheKey = function () { return "wax-sss-v1"; };
   function makeCandle(x, z, waxH) {
     var g = new THREE.Group();
     var dish = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.8, 0.12, 22), iron);
@@ -3160,10 +3156,12 @@ window.THREE = THREE;
     }
     var maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
     var inDwell = (window.scrollY <= 120) || (maxScroll > 200 && window.scrollY >= maxScroll - 120);
-    /* sealPhase drives the intro choreography (owner, issue-18 rework):
-       pre → approach (cinematic push-in) → wait (parked, seal breathing) →
-       pulling (fast pull-back to wide; the riser's visual twin) → burst
-       (nova flood, full render path) → intro (authored dolly) → done. */
+    if (novaCompose) {
+      if (sealFx.clock < 0 || sealFx.clock > 2.0) {
+        novaCompose.enabled = false;
+      }
+    }
+
     var moving = (Math.abs(window.scrollY - lastScrollY) > 0.5) ||
                  (Math.abs(opCur - opGoal) > 0.004) ||
                  (lastCamP.distanceToSquared(camera.position) > 0.0001) ||
@@ -3181,13 +3179,7 @@ window.THREE = THREE;
       isParked = false;
     } else {
       dwellStillMs += dt * 1000;
-      /* The burst parks IMMEDIATELY (no 250ms dwell): the pull-back just
-         landed, the desk must recomposite into the hold target before the
-         fracture so the burst renders in the cheap parked path. */
-      if (sealPhase === "burst" && !isParked && composer && live) {
-        captureHoldTarget();
-        isParked = true;
-      } else if (dwellStillMs >= 250 && !isParked && composer) {
+      if (dwellStillMs >= 250 && !isParked && composer) {
         captureHoldTarget();
         isParked = true;
       }
@@ -3238,7 +3230,18 @@ window.THREE = THREE;
     },
     setDpr: function (v) {
       renderer.setPixelRatio(v);
-      if (composer) composer.setSize(window.innerWidth, window.innerHeight);
+      if (composer) {
+        if (typeof composer.setPixelRatio === "function") {
+          composer.setPixelRatio(v);
+        } else {
+          composer.setSize(window.innerWidth, window.innerHeight);
+        }
+      }
+      if (bloomPass) {
+        bloomPass.setSize(
+          Math.max(2, Math.round(window.innerWidth * 0.5)),
+          Math.max(2, Math.round(window.innerHeight * 0.5)));
+      }
     },
     setPlain: function (on) { this.plain = on; },
     stage: function () { return 0; }, /* watchdog is gone; stub for the meter */
@@ -3501,6 +3504,14 @@ window.THREE = THREE;
     sealPhase = "done";
     document.documentElement.classList.add("intro-done");
     de.style.scrollBehavior = "auto";
+    /* Adopted C7: Restore native DPR on handoff so desk dwell zones stay crisp */
+    if (nativeDpr !== introDpr) {
+      renderer.setPixelRatio(nativeDpr);
+      if (composer) {
+        if (typeof composer.setPixelRatio === "function") composer.setPixelRatio(nativeDpr);
+        composer.setSize(window.innerWidth, window.innerHeight);
+      }
+    }
     /* If the zones were torn down mid-intro (context lost), the captured
        zone height is a lie — land relative to 0. */
     var zoneH = (zoneTopEl && zoneTopEl.isConnected) ? topZoneH : 0;
@@ -3611,17 +3622,15 @@ window.THREE = THREE;
      the wide hold begin — the dolly never pays the GPU's first-frame
      bill on screen. */
   (function awaitSheet() {
-    var polls = 0;
-    /* Round 5b: the cap was 24 polls (4s) — on a fonts-slow machine the
-       warm ran WITHOUT the sheet texture and the 9MB bake landed
-       mid-intro (texture upload + program swap = the very hitch the warm
-       exists to prevent; verified in the user's recording). The loader
-       now genuinely waits: 90 polls ≈ 15s, after which the page has far
-       bigger problems than a late sheet. */
-    (function poll() {
-      if (sheet.tex || polls++ > 90) warmAndGo();
-      else setTimeout(poll, 166);
-    })();
+    var done = false;
+    function go() {
+      if (done) return;
+      done = true;
+      warmAndGo();
+    }
+    if (sheetPromise) sheetPromise.then(go).catch(go);
+    else go();
+    setTimeout(go, 3000);
   })();
   function warmAndGo() {
     /* Same rule as the composer's first pass: the warm frames must see
@@ -3631,33 +3640,23 @@ window.THREE = THREE;
     /* The nova FX objects (shells, pool, smoke) compiled at module init via
        their own warm pass; the ember Points compile here with the rest. */
     try { renderer.compile(scene, camera); } catch (e) {}
-    /* Six real frames when frames flow; BOUNDED when they don't — an
-       occluded/background tab suspends rAF, and the loader must never
-       hang on a frame the compositor refuses to produce. */
     var frames = 0, done = false;
     function finish() {
       if (done) return;
       done = true;
       warmHidden(false); /* back to the open=0 rest state */
-      var waits = 0;
-      (function awaitComposer() {
-        if (composerReady || waits++ > 15) {
-          window.__TAPESTRY_3D_READY = true;
-          try { window.dispatchEvent(new CustomEvent("tapestry:3d-ready")); } catch (e) {}
-          /* Ready: the loader dissolves over the first beat of the
-             cinematic approach — the desk pushes in toward the seal. */
-          startSealApproach();
-          return;
-        }
-        setTimeout(awaitComposer, 166);
-      })();
+      window.__TAPESTRY_3D_READY = true;
+      try { window.dispatchEvent(new CustomEvent("tapestry:3d-ready")); } catch (e) {}
+      /* Ready: the loader dissolves over the first beat of the
+         cinematic approach — the desk pushes in toward the seal. */
+      startSealApproach();
     }
-    var giveUp = setTimeout(finish, 1600);
+    var giveUp = setTimeout(finish, 1000);
     (function step() {
       if (done) return;
       if (composer && composerReady) composer.render();
       else renderer.render(scene, camera);
-      if (++frames < 6) { requestAnimationFrame(step); return; }
+      if (++frames < 2) { requestAnimationFrame(step); return; }
       clearTimeout(giveUp);
       finish();
     })();
@@ -3670,17 +3669,24 @@ window.THREE = THREE;
     fitPUSH();
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
+    var curDpr = (introDone || sealPhase === "done") ? nativeDpr : introDpr;
+    renderer.setPixelRatio(curDpr);
     renderer.setSize(window.innerWidth, window.innerHeight);
-    if (composer) composer.setSize(window.innerWidth, window.innerHeight);
-    if (bloomPass) bloomPass.setSize(
-      Math.max(2, Math.round(window.innerWidth * 0.5)),
-      Math.max(2, Math.round(window.innerHeight * 0.5)));
+    if (composer) {
+      if (typeof composer.setPixelRatio === "function") composer.setPixelRatio(curDpr);
+      composer.setSize(window.innerWidth, window.innerHeight);
+    }
+    if (bloomPass) {
+      bloomPass.setSize(
+        Math.max(2, Math.round(window.innerWidth * 0.5)),
+        Math.max(2, Math.round(window.innerHeight * 0.5)));
+    }
     isParked = false;
     dwellStillMs = 0;
     if (holdTarget) {
       holdTarget.setSize(
-        Math.max(2, Math.round(window.innerWidth * Math.min(1.0, window.devicePixelRatio || 1))),
-        Math.max(2, Math.round(window.innerHeight * Math.min(1.0, window.devicePixelRatio || 1)))
+        Math.max(2, Math.round(window.innerWidth * curDpr)),
+        Math.max(2, Math.round(window.innerHeight * curDpr))
       );
     }
     topZoneH = zoneTopEl ? zoneTopEl.offsetHeight : window.innerHeight * 1.4;
