@@ -1,0 +1,4 @@
+Cursor art: "Pointers: part 5" by yd (opengameart.org/content/pointers-part-5)
+License: Creative Commons CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)
+Brass gauntlet set — pointing (default), open (interactive), closed (pressed).
+Resized from the original 72x72 to 40x40 CSS px with a 72px 2x tier.
