@@ -790,6 +790,8 @@ window.THREE = THREE;
       a.restore();
     }
     /* the white-hot OPEN, stamped deepest */
+    a.textAlign = "center";
+    a.textBaseline = "middle";
     a.shadowColor = "rgba(255,132,0,0.9)";
     a.shadowBlur = 22;
     a.fillStyle = "#FFF3DC";
