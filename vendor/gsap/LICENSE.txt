@@ -1,0 +1,7 @@
+GreenSock Standard "No Charge" License
+https://gsap.com/standard-license
+
+Copyright 2008-2024, GreenSock. All rights reserved.
+
+GSAP is free to use in any site, app, or project where you are not charging multiple end users a fee for use.
+Subject to the terms at https://gsap.com/standard-license.
