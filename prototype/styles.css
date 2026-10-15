@@ -5,7 +5,6 @@
   --ink: #2A1A0E;
   --ember: #FF9A2A;
   --desk: #3B2412;
-  --candle: #FFB347;
   --night: #14100B;
   --font-display: "Cinzel Decorative", serif;
   --font-hand: "Fondamento", cursive;
@@ -13,6 +12,48 @@
 }
 
 * { box-sizing: border-box; }
+
+/* Pointer cursors: the brass gauntlet set (CC0 — yd, "Pointers: part 5",
+   opengameart.org; license alongside the files in assets/cursor/). An
+   engraved brass signet hand matching the scholar's-desk register:
+   pointing gauntlet as default, open gauntlet on interactives, closed
+   fist when pressed. 40px PNG with a 72px 2x tier; suppressed on touch. */
+:root {
+  --cursor-default: url("assets/cursor/gauntlet-point.png") 4 0, default;
+  --cursor-pointer: url("assets/cursor/gauntlet-open.png") 9 0, pointer;
+  --cursor-active: url("assets/cursor/gauntlet-closed.png") 16 2, pointer;
+}
+
+html, body {
+  cursor: var(--cursor-default);
+}
+
+a, button, input[type="submit"], .interactive, #kindle, .seal-interactive {
+  cursor: var(--cursor-pointer);
+}
+
+a:active, button:active, input[type="submit"]:active, .interactive:active, #kindle:active, .seal-interactive:active {
+  cursor: var(--cursor-active);
+}
+
+@media (pointer: coarse), (hover: none) {
+  html, body, a, button, input[type="submit"], .interactive, #kindle, .seal-interactive {
+    cursor: auto !important;
+  }
+}
+
+/* High-DPI tier: 2x PNGs where cursor image-set() is supported (Chrome). */
+@supports (cursor: image-set(url("x.png") 1x)) {
+  html, body {
+    cursor: image-set(url("assets/cursor/gauntlet-point.png") 1x, url("assets/cursor/gauntlet-point-2x.png") 2x) 4 0, default;
+  }
+  a, button, input[type="submit"], .interactive, #kindle, .seal-interactive {
+    cursor: image-set(url("assets/cursor/gauntlet-open.png") 1x, url("assets/cursor/gauntlet-open-2x.png") 2x) 9 0, pointer;
+  }
+  a:active, button:active, input[type="submit"]:active, .interactive:active, #kindle:active, .seal-interactive:active {
+    cursor: image-set(url("assets/cursor/gauntlet-closed.png") 1x, url("assets/cursor/gauntlet-closed-2x.png") 2x) 16 2, pointer;
+  }
+}
 /* MANDATORY by default (user iterate: "going from one section should
    strongly snap to the next") — resting between sections is no longer
    allowed. PROXIMITY inside the two desk bands (scene.js flips the class
@@ -53,20 +94,6 @@ body::before, body::after {
 body::before { left: -70px; }
 body::after { right: -70px; }
 
-/* Illustrated desk candles: the 3D scene owns candles on desktop (scene.js);
-   the SVG pair stands in only on the non-3D page (mobile UA / reduced
-   motion — html.no-3d, set by scene.js teardown or app.js failsafes). */
-.candle { position: absolute; top: 48px; width: 96px; z-index: 0; display: none; }
-.candle.left { left: max(24px, calc((100% - 1292px) / 2)); }
-.candle.right { right: max(24px, calc((100% - 1292px) / 2)); }
-.candle svg { width: 100%; height: auto; display: block; }
-.candle .flame { transform-origin: 60px 100px; animation: flicker 1.8s ease-in-out infinite; }
-@keyframes flicker {
-  0%, 100% { transform: scaleY(1); opacity: 1; }
-  30% { transform: scaleY(1.05) scaleX(0.98); opacity: 0.92; }
-  60% { transform: scaleY(0.96); opacity: 1; }
-}
-html.no-3d .candle { display: block; }
 
 /* ---------- Desk zones (ADR-0012): thin free-scroll bands that own the
    camera valley. Hidden wherever the 3D scene is absent. ---------- */
@@ -198,8 +225,7 @@ html.no-3d .desk-zone { display: none; }
 }
 
 /* Kindle: floating muted-first toggle. Ink-drawn register — an ink ring
-   on parchment, not a pulsing notification badge; the pulse stops after
-   the first interaction (.settled, set by app.js). */
+   on parchment with a living ember pulse when kindled. */
 #kindle {
   position: fixed; right: 22px; bottom: 22px; z-index: 40;
   width: 52px; height: 52px; border-radius: 50%;
@@ -209,13 +235,41 @@ html.no-3d .desk-zone { display: none; }
   display: flex; align-items: center; justify-content: center;
   animation: kindle-pulse 2.2s ease-out infinite;
 }
-#kindle[hidden] { display: none; }
+#kindle[hidden] { display: none !important; }
 #kindle svg { width: 22px; height: 22px; }
 #kindle .icon-sound { display: none; }
 #kindle.on .icon-sound { display: block; }
 #kindle.on .icon-muted { display: none; }
-#kindle.on { animation: none; box-shadow: 0 0 14px var(--ember); border-color: var(--ember); }
-#kindle.settled { animation: none; }
+#kindle.on {
+  animation: kindle-glow 2.2s ease-in-out infinite;
+  border-color: var(--ember);
+}
+#kindle.settled:not(.on) { animation: none; }
+
+/* Arcane Wax Seal shockwave & accessible controls (Issue #18) */
+
+.seal-accessible-btn {
+  position: fixed;
+  width: 120px;
+  height: 120px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: transparent;
+  border: 2px solid transparent;
+  /* signet pointer/active states arrive from the button rules above —
+     a plain cursor:pointer here would override them */
+  z-index: 30;
+  outline: none;
+}
+.seal-accessible-btn:focus-visible {
+  border-color: var(--ember);
+  box-shadow: 0 0 20px rgba(255, 165, 0, 0.85);
+}
+.seal-accessible-btn[hidden] {
+  display: none !important;
+}
 
 /* Static fallback: no GSAP means no hidden states, plain readable page. */
 html.no-gsap .ember-reveal, html.no-gsap .ink-reveal {
@@ -236,6 +290,11 @@ html.no-gsap .cap-sigil text { opacity: 1; transition: none; }
   70% { box-shadow: 0 0 0 16px rgba(255, 154, 42, 0); }
   100% { box-shadow: 0 0 0 0 rgba(255, 154, 42, 0); }
 }
+@keyframes kindle-glow {
+  0% { box-shadow: 0 0 6px rgba(255, 154, 42, 0.5), inset 0 0 4px rgba(255, 154, 42, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(255, 154, 42, 0.85), inset 0 0 8px rgba(255, 154, 42, 0.5); }
+  100% { box-shadow: 0 0 6px rgba(255, 154, 42, 0.5), inset 0 0 4px rgba(255, 154, 42, 0.3); }
+}
 
 /* ---------- Desk + column (free scroll, grain overlay) ---------- */
 .desk { padding: 40px 20px; position: relative; z-index: 1; }
@@ -251,6 +310,12 @@ html.no-gsap .cap-sigil text { opacity: 1; transition: none; }
     inset 0 0 60px rgba(96, 60, 22, 0.1),
     0 2px 24px rgba(10, 6, 2, 0.55);
   padding: 64px 84px;
+}
+/* Ensure the DOM column is never visible as a ghost paper while the 3D scene is playing */
+html:not(.intro-done):not(.no-3d) .column {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 /* Static candle falloff over the column: bright near the top where the
    candles sit, dimmer at the foot — halves the 3D-to-DOM grade gap. */
@@ -612,7 +677,7 @@ html.no-3d { scroll-snap-type: y proximity; }
   .ember-reveal.revealed, .ink-reveal.revealed { transition: none; }
   .ink-reveal img { clip-path: none; filter: grayscale(1) contrast(1.06); transition: none; }
   .char-line, .burn-frame, #embers { display: none; }
-  .scroll-cue, .scroll-cue-inner, .loader-sigil, .candle .flame, .zone-cue-inner, .char-line, #kindle, .runes li { animation: none; }
+  .scroll-cue, .scroll-cue-inner, .loader-sigil, .zone-cue-inner, .char-line, #kindle, .runes li { animation: none; }
   #grain { animation: none; }
   #loader { transition: none; }
   .cap-sigil circle, .cap-sigil path { stroke-dashoffset: 0; transition: none; }

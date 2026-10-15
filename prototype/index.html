@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Fondamento&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=34">
+<link rel="stylesheet" href="styles.css?v=38">
 </head>
 <body>
 
@@ -48,41 +48,6 @@
 </div>
 
 <div class="desk">
-  <div class="candle left" aria-hidden="true">
-    <svg viewBox="0 0 120 240" fill="none">
-      <defs>
-        <radialGradient id="cglow" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stop-color="#FFB347" stop-opacity="0.55"/>
-          <stop offset="60%" stop-color="#FF9A2A" stop-opacity="0.18"/>
-          <stop offset="100%" stop-color="#FF9A2A" stop-opacity="0"/>
-        </radialGradient>
-      </defs>
-      <circle cx="60" cy="52" r="48" fill="url(#cglow)" stroke="none"/>
-      <ellipse cx="60" cy="214" rx="40" ry="10" stroke="#2A1A0E" stroke-width="3"/>
-      <path d="M44 122 h32 v82 a6 6 0 0 1 -6 6 h-20 a6 6 0 0 1 -6 -6 z" fill="#F5ECD7" stroke="#2A1A0E" stroke-width="3"/>
-      <path d="M44 122 q8 -10 16 -2 q8 -12 16 0 l0 8 h-32 z" fill="#F5ECD7" stroke="#2A1A0E" stroke-width="2"/>
-      <path d="M84 124 q7 2 6 11 q-1 8 -6 8 q-4 -1 -4 -8 z" fill="#F5ECD7" stroke="#2A1A0E" stroke-width="2"/>
-      <line x1="60" y1="112" x2="60" y2="100" stroke="#2A1A0E" stroke-width="3" stroke-linecap="round"/>
-      <g class="flame">
-        <ellipse cx="60" cy="80" rx="12" ry="21" fill="#FF9A2A" stroke="none"/>
-        <ellipse cx="60" cy="87" rx="6" ry="11" fill="#FFB347" stroke="none"/>
-      </g>
-    </svg>
-  </div>
-  <div class="candle right" aria-hidden="true">
-    <svg viewBox="0 0 120 240" fill="none">
-      <circle cx="60" cy="52" r="48" fill="url(#cglow)" stroke="none"/>
-      <ellipse cx="60" cy="214" rx="40" ry="10" stroke="#2A1A0E" stroke-width="3"/>
-      <path d="M44 122 h32 v82 a6 6 0 0 1 -6 6 h-20 a6 6 0 0 1 -6 -6 z" fill="#F5ECD7" stroke="#2A1A0E" stroke-width="3"/>
-      <path d="M44 122 q8 -10 16 -2 q8 -12 16 0 l0 8 h-32 z" fill="#F5ECD7" stroke="#2A1A0E" stroke-width="2"/>
-      <path d="M84 124 q7 2 6 11 q-1 8 -6 8 q-4 -1 -4 -8 z" fill="#F5ECD7" stroke="#2A1A0E" stroke-width="2"/>
-      <line x1="60" y1="112" x2="60" y2="100" stroke="#2A1A0E" stroke-width="3" stroke-linecap="round"/>
-      <g class="flame">
-        <ellipse cx="60" cy="80" rx="12" ry="21" fill="#FF9A2A" stroke="none"/>
-        <ellipse cx="60" cy="87" rx="6" ry="11" fill="#FFB347" stroke="none"/>
-      </g>
-    </svg>
-  </div>
   <main class="column">
 
     <!-- Sigil cap: the sheet's lead-in. The hero must open mid-desk, not
@@ -225,6 +190,10 @@
 <div id="vignette" aria-hidden="true"></div>
 <div id="grain" aria-hidden="true"></div>
 <div id="seam-flash" aria-hidden="true"></div>
+<!-- Accessible keyboard / screen-reader trigger for breaking the wax seal -->
+<button id="seal-trigger" class="seal-accessible-btn" aria-label="Break wax seal and unroll tapestry" tabindex="0">
+  <span class="sr-only">Break wax seal and unroll tapestry</span>
+</button>
 
 <!-- Kindle: floating muted-first toggle, kindles the harp music (1b). Icons: Lucide volume-x / volume-2 (ISC, https://lucide.dev). -->
 <button id="kindle" aria-label="Kindle background music" aria-pressed="false" hidden>
@@ -241,11 +210,11 @@
   "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
 }}
 </script>
-<script type="module" src="scene.js?v=52"></script>
+<script type="module" src="scene.js?v=64"></script>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.13.0/gsap.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.13.0/ScrollTrigger.min.js"></script>
 <script src="parchment.js?v=30"></script>
-<script src="app.js?v=34"></script>
+<script src="app.js?v=39"></script>
 </body>
 </html>

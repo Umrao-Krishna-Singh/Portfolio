@@ -139,18 +139,19 @@
 
   /* ---------- Procedural SFX + kindled music ----------
      Interaction SFX (deep two-layer thud, low-passed unroll sweep,
-     granular crackle) stay 100% procedural, zero files (ADR-0001).
-     The KINDLED MUSIC is now RandomMind's The Bard's Tale v3 Opus (CC0,
-     owner pick 2026-10-06): fetched + decoded at the kindle click — zero
-     bytes before the gesture (ADR-0002) — looping end-to-start; the 2.2s
-     lead-in silence is an accepted part of each cycle (owner decision,
-     issue #18). The ADR-0014 generative harp remains as the offline
-     fallback if fetch/decode fails. Kindle-gated (ADR-0002). */
+     granular crackle, seal fracture) stay 100% procedural, zero files
+     (ADR-0001). The KINDLED MUSIC is RandomMind's The Bard's Tale v3 Opus
+     (CC0, owner pick 2026-10-06): fetched + decoded at the kindle gesture —
+     zero bytes before the gesture (ADR-0002) — looping end-to-start; the
+     2.2s lead-in silence is an accepted part of each cycle (owner decision,
+     issue #18). The ADR-0014 generative harp is REMOVED (owner 2026-10-14:
+     the old generated music sometimes surfaced via the fetch-failure
+     fallback and must be gone completely) — if the track fetch/decode
+     fails, the page stays silent rather than falling back. Kindle-gated
+     (ADR-0002). */
   function Engine() {
     this.ctx = null;
     this.master = null;
-    this.drone = null;
-    this.ambience = null;
     this.reverb = null;
   }
   Engine.prototype.unlock = function () {
@@ -197,7 +198,7 @@
     /* Cached per rounded duration: the unroll sweep asks for 2.4s of
        samples on the drop-start frame — allocating ~0.5MB and 115k
        Math.random calls there is a visible one-frame stall (user: "the
-       intro still hangs"). The ambience shares the 2.4s buffer. */
+       intro still hangs"). */
     var c = this.ctx;
     var ms = Math.round(dur * 1000);
     this._noise = this._noise || {};
@@ -209,82 +210,129 @@
     this._noise[ms] = buf;
     return buf;
   };
-  /* ---------- Music: mystic harp, zero files (ADR-0013 rev 2) ----------
-     The user's verdict on the drone: "just a random low frequency hum" —
-     the 55-110 Hz oscillator stack is gone entirely. In its place a
-     generative harp: Karplus-Strong plucked strings synthesized offline
-     into cached buffers (one compile per note, then it's playback), a
-     slow phrase generator wandering D dorian, everything through the
-     shared generated-impulse reverb. A faint fire-hiss bed stays behind
-     it (filtered noise, no tonal content). Still 100% procedural,
-     gesture-gated, kindle-gated (ADR-0001/0002). */
-  Engine.prototype.pluckBuffer = function (freq) {
-    var key = String(Math.round(freq));
-    if (this._plucks && this._plucks[key]) return this._plucks[key];
-    this._plucks = this._plucks || {};
-    var c = this.ctx;
-    var sr = c.sampleRate;
-    var N = Math.max(2, Math.round(sr / freq));
-    var len = Math.floor(sr * 2.2);
-    var buf = c.createBuffer(1, len, sr);
-    var d = buf.getChannelData(0);
-    /* Excitation: smoothed noise burst (the pluck), softened so the
-       string sings warm instead of buzz-like. */
-    var i;
-    for (i = 0; i < N + 1 && i < len; i++) d[i] = Math.random() * 2 - 1;
-    for (i = 1; i < N + 1 && i < len; i++) d[i] = (d[i] + d[i - 1]) * 0.5;
-    /* Karplus-Strong loop: delayed averaging decays into a plucked
-       string; rho near 1 gives the long harp sustain. */
-    for (i = N + 1; i < len; i++) {
-      d[i] = 0.5 * 0.9965 * (d[i - N] + d[i - N - 1]);
-    }
-    /* Fade the tail so a looping phrase never clicks at buffer end. */
-    var fade = Math.floor(sr * 0.25);
-    for (i = 0; i < fade; i++) d[len - 1 - i] *= i / fade;
-    this._plucks[key] = buf;
-    return buf;
+  /* ---- Nova eruption score (owner round 6): riser -> pre-hit dip -> BOOM.
+     All procedural (license-clean): detuned FM shimmer riser, sub-drop +
+     crack transient + lowpass-swept body at the break, rumble tail through
+     the generated-IR room. Research: nova-eruption-implementation.md #4. */
+  Engine.prototype.novaRiser = function (dur) {
+    if (!this.ctx) return;
+    var c = this.ctx, t = c.currentTime, end = t + dur;
+    var out = this._novaBus();
+    /* two detuned triangles sweeping up, FM shimmer deepening toward the
+       break, then the pre-hit dip (the ear's gap-detector pre-loads the
+       boom) */
+    [0, 4].forEach(function (det) {
+      var o = c.createOscillator(), g = c.createGain();
+      o.type = "triangle";
+      o.frequency.setValueAtTime(180 + det, t);
+      o.frequency.exponentialRampToValueAtTime(830 + det * 2, end);
+      var m = c.createOscillator(), mg = c.createGain();
+      m.type = "sine";
+      m.frequency.setValueAtTime(560, t);
+      m.frequency.exponentialRampToValueAtTime(2500, end);
+      mg.gain.setValueAtTime(40, t);
+      mg.gain.exponentialRampToValueAtTime(420, end);
+      m.connect(mg); mg.connect(o.frequency);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.14, end - 0.07);
+      g.gain.exponentialRampToValueAtTime(0.0001, end);
+      o.connect(g); g.connect(out);
+      o.start(t); m.start(t);
+      o.stop(end + 0.02); m.stop(end + 0.02);
+    });
+    /* noise breath: bandpass sweep under the tone */
+    var n = c.createBufferSource();
+    n.buffer = this.noiseBuffer(dur + 0.1); n.loop = true;
+    var bp = c.createBiquadFilter();
+    bp.type = "bandpass"; bp.Q.value = 1.1;
+    bp.frequency.setValueAtTime(320, t);
+    bp.frequency.exponentialRampToValueAtTime(5200, end - 0.05);
+    var ng = c.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.11, end - 0.07);
+    ng.gain.exponentialRampToValueAtTime(0.0001, end);
+    n.connect(bp); bp.connect(ng); ng.connect(out);
+    n.start(t); n.stop(end + 0.02);
   };
-  Engine.prototype.pluck = function (freq, at, vel, bright) {
-    if (!this.ctx || !this.harpBus) return;
-    var c = this.ctx;
-    var g = c.createGain();
-    g.gain.value = vel;
-    g.connect(this.harpBus);
-    var mk = function (rate, v) {
-      var src = c.createBufferSource();
-      src.buffer = this.pluckBuffer(freq);
-      src.playbackRate.value = rate;
-      var vg = c.createGain();
-      vg.gain.value = v;
-      src.connect(vg);
-      vg.connect(g);
-      src.start(at);
-      src.stop(at + 2.3);
-    }.bind(this);
-    mk(1, 1);
-    /* Detuned second voice: the shimmer of a real strung instrument. */
-    mk(1.0022, 0.45);
-    if (bright) {
-      /* Brightness accent on phrase heads: open the top a beat. */
-      var f = c.createBiquadFilter();
-      f.type = "highshelf";
-      f.frequency.value = 2200;
-      f.gain.setValueAtTime(3.5, at);
-      f.gain.linearRampToValueAtTime(0, at + 0.5);
-      g.disconnect();
-      g.connect(f);
-      f.connect(this.harpBus);
+  Engine.prototype.novaBoom = function () {
+    if (!this.ctx) return;
+    var c = this.ctx, t = c.currentTime;
+    var out = this._novaBus();
+    /* sub drop: the body of the blast */
+    var sub = c.createOscillator(), sg = c.createGain();
+    sub.type = "sine";
+    sub.frequency.setValueAtTime(118, t);
+    sub.frequency.exponentialRampToValueAtTime(27, t + 0.5);
+    sg.gain.setValueAtTime(0.95, t);
+    sg.gain.exponentialRampToValueAtTime(0.001, t + 1.35);
+    sub.connect(sg); sg.connect(out);
+    var subSend = c.createGain();
+    subSend.gain.value = 0.35;
+    sg.connect(subSend); subSend.connect(this.reverbSend());
+    sub.start(t); sub.stop(t + 1.4);
+    /* transient crack */
+    var cr = c.createBufferSource();
+    cr.buffer = this.noiseBuffer(0.05);
+    var cf = c.createBiquadFilter();
+    cf.type = "bandpass"; cf.frequency.value = 4200; cf.Q.value = 4;
+    var cg = c.createGain();
+    cg.gain.setValueAtTime(0.5, t);
+    cg.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    cr.connect(cf); cf.connect(cg); cg.connect(out);
+    cr.start(t);
+    /* body: lowpass-swept noise */
+    var bo = c.createBufferSource();
+    bo.buffer = this.noiseBuffer(1.0);
+    var bf = c.createBiquadFilter();
+    bf.type = "lowpass";
+    bf.frequency.setValueAtTime(900, t);
+    bf.frequency.exponentialRampToValueAtTime(120, t + 0.9);
+    var bg = c.createGain();
+    bg.gain.setValueAtTime(0.42, t + 0.01);
+    bg.gain.exponentialRampToValueAtTime(0.001, t + 0.95);
+    bo.connect(bf); bf.connect(bg); bg.connect(out);
+    bo.start(t);
+    /* rumble tail through the room */
+    var ru = c.createOscillator(), rg = c.createGain();
+    ru.type = "sine"; ru.frequency.value = 41;
+    rg.gain.setValueAtTime(0.0001, t + 0.25);
+    rg.gain.exponentialRampToValueAtTime(0.12, t + 0.45);
+    rg.gain.exponentialRampToValueAtTime(0.0001, t + 2.3);
+    ru.connect(rg); rg.connect(this.reverbSend());
+    ru.start(t + 0.25); ru.stop(t + 2.4);
+    /* sidechain-style duck of the music bed: WebAudio's compressor has no
+       external sidechain, so the track gain is automated directly */
+    if (this._trackGainNode) {
+      var tg = this._trackGainNode.gain;
+      tg.cancelScheduledValues(t);
+      tg.setValueAtTime(Math.max(0.05, tg.value), t);
+      tg.linearRampToValueAtTime(0.12, t + 0.05);
+      tg.linearRampToValueAtTime(0.68, t + 1.35);
     }
   };
-  Engine.prototype.kindleMusic = function () {
+  /* SFX bus: the compressor catches the boom's peak without flattening it. */
+  Engine.prototype._novaBus = function () {
+    if (this._novaBusNode) return this._novaBusNode;
+    var c = this.ctx;
+    var cp = c.createDynamicsCompressor();
+    cp.threshold.value = -12; cp.knee.value = 20; cp.ratio.value = 4;
+    cp.attack.value = 0.003; cp.release.value = 0.25;
+    cp.connect(this.master);
+    this._novaBusNode = cp;
+    return cp;
+  };
+  Engine.prototype.kindleMusic = function (fadeDuration) {
     /* Dispatcher: the Bard's Tale track is the kindled music; the
        generative harp is the fallback. Re-kindling mid-fetch must not
        double-fetch (guard) and must not start after an unkindle (the
-       decode continuation re-checks _musicOn). */
+       decode continuation re-checks _musicOn). fadeDuration > 0 gives the
+       post-seal entrance its smooth 1.6s ramp (Issue #18); the manual
+       kindle toggle starts instantly. */
     this._musicOn = true;
     if (this._trackSrc) return;
-    if (this._trackBuf) { this.startTrack(); return; }
-    if (this._trackLoading || this._trackFailed) { this.kindleHarp(); return; }
+    if (this._trackBuf) { this.startTrack(fadeDuration); return; }
+    /* No generative fallback (owner 2026-10-14): a failed fetch/decode
+       means silence, never the old harp. */
     var that = this;
     this._trackLoading = true;
     fetch("../.tmp/pen-runs/assets/The_Bards_Tale_v3.opus")
@@ -294,125 +342,34 @@
         that._trackLoading = false;
         if (!that._musicOn) return;
         that._trackBuf = buf;
-        /* A re-kindle during the fetch started the harp fallback: retire
-           it (timer, hiss bed, bus) before the track joins, or both
-           would play at once. */
-        if (that.harpBus) {
-          if (that._harpTimer) { clearTimeout(that._harpTimer); that._harpTimer = null; }
-          if (that._amb) {
-            try { that._amb.src.stop(); that._amb.lfo.stop(); } catch (e) {}
-            that._amb = null;
-          }
-          try { that.harpBus.disconnect(); } catch (e) {}
-          that.harpBus = null;
-        }
-        that.startTrack();
+        that.startTrack(fadeDuration);
       })
       .catch(function () {
         that._trackLoading = false;
-        that._trackFailed = true;
-        if (that._musicOn) that.kindleHarp();
+        that._trackFailed = true; /* silent: SFX keep working, no fallback music */
       });
   };
-  Engine.prototype.startTrack = function () {
+  Engine.prototype.startTrack = function (fadeDuration) {
     if (this._trackSrc || !this._trackBuf) return;
     var c = this.ctx;
     var src = c.createBufferSource();
     src.buffer = this._trackBuf;
     src.loop = true; /* whole buffer wraps: end → start, lead-in included */
     var g = c.createGain();
-    g.gain.value = 0.85;
+    var t = c.currentTime;
+    /* Restaged -20% gain: 0.85 * 0.80 = 0.68 (Issue #18) */
+    var targetGain = 0.68;
+    if (fadeDuration && fadeDuration > 0) {
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(targetGain, t + fadeDuration);
+    } else {
+      g.gain.value = targetGain;
+    }
     src.connect(g);
     g.connect(this.master);
     src.start();
     this._trackSrc = src;
-  };
-  Engine.prototype.kindleHarp = function () {
-    if (this._harpTimer) { this._musicOn = true; return; }
-    var c = this.ctx;
-    /* Harp bus: gentle lowpass keeps the plucks woody (3100 — gut-string
-       dark, not bright celtic), reverb sends out. */
-    var f = c.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.value = 3100;
-    f.Q.value = 0.5;
-    var g = c.createGain();
-    g.gain.value = 0.5;
-    f.connect(g);
-    g.connect(this.master);
-    var send = c.createGain();
-    send.gain.value = 0.45;
-    g.connect(send);
-    send.connect(this.reverbSend());
-    this.harpBus = f; /* plucks feed the filter input */
-    /* Candle-fire bed: soft looping hiss, breathing (kept — noise, not
-       the hum the user rejected). Built once; silenceMusic stops it, so
-       off→on cycles never stack a second chain (critic P2). */
-    if (!this._amb) {
-      var amb = c.createBufferSource();
-      amb.buffer = this.noiseBuffer(2.4);
-      amb.loop = true;
-      var ambF = c.createBiquadFilter();
-      ambF.type = "lowpass";
-      ambF.frequency.value = 480;
-      var ambG = c.createGain();
-      ambG.gain.value = 0.009;
-      var ambLfo = c.createOscillator();
-      ambLfo.frequency.value = 0.13;
-      var ambLfoG = c.createGain();
-      ambLfoG.gain.value = 0.005;
-      ambLfo.connect(ambLfoG);
-      ambLfoG.connect(ambG.gain);
-      amb.connect(ambF);
-      ambF.connect(ambG);
-      ambG.connect(this.master);
-      amb.start();
-      ambLfo.start();
-      this._amb = { src: amb, lfo: ambLfo };
-    }
-    /* Phrase engine v4 (ADR-0014): the composed tune (user round 5b —
-       G mixolydian, A-A'-B-cadence form, 6/8 lilt pairs, parallel-fourth
-       organum riding every note, close on the low final with the fifth
-       under it) is the accepted baseline; pitches, form, lilt and organum
-       untouched. v4 adds performance practice only: a per-phrase dynamic
-       contour (the B phrase lifts, the cadence settles) and a ~18%
-       ritardando into the
-       close, so the form arches and breathes instead of sitting flat. */
-    var SCALE = [146.83, 196.0, 220.0, 246.94, 261.63, 293.66, 329.63,
-      349.23, 392.0, 440.0, 493.88, 523.25, 587.33];
-    var that = this;
-    this._musicOn = true;
-    var next = c.currentTime + 0.4;
-    /* [scaleIndex, lilt] — lilt 0 = long (dotted), 1 = short (quaver). */
-    var PHRASE_A = [[5, 0], [8, 1], [10, 0], [9, 1], [8, 0], [9, 1], [10, 0], [8, 1]];
-    var PHRASE_A2 = [[5, 0], [8, 1], [10, 0], [9, 1], [8, 0], [6, 1], [5, 0], [1, 1]];
-    var PHRASE_B = [[8, 0], [9, 1], [11, 0], [9, 1], [8, 0], [6, 1], [7, 0], [6, 1]];
-    var PHRASE_CAD = [[5, 0], [3, 1], [4, 0], [3, 1], [2, 1], [1, 0]];
-    var FORM = [PHRASE_A, PHRASE_A2, PHRASE_B, PHRASE_CAD];
-    var DYN = [0.85, 0.9, 1.12, 0.9];
-    var formIdx = 0;
-    (function step() {
-      if (!that._musicOn) { that._harpTimer = null; return; }
-      while (next < that.ctx.currentTime + 1.3) {
-        var phrase = FORM[formIdx];
-        var rit = formIdx === 3 ? 1.18 : 1;
-        var t = next;
-        for (var k = 0; k < phrase.length; k++) {
-          var long = phrase[k][1] === 0;
-          var idx = phrase[k][0];
-          var vel = (0.22 + Math.random() * 0.16) * (long ? 1 : 0.82) * DYN[formIdx];
-          that.pluck(SCALE[idx], t, vel, k === 0);
-          /* Organum fourth below; the final also gets the low fifth. */
-          if (idx - 4 >= 0) that.pluck(SCALE[idx - 4], t + 0.012, vel * 0.38, false);
-          else that.pluck(SCALE[0], t + 0.012, vel * 0.3, false);
-          t += (long ? 0.40 + Math.random() * 0.05 : 0.20 + Math.random() * 0.03) * rit;
-        }
-        formIdx = (formIdx + 1) % FORM.length;
-        /* Breathe: generous after the cadence, brief between phrases. */
-        next = t + (formIdx === 0 ? 1.6 + Math.random() * 0.9 : 0.5 + Math.random() * 0.3);
-      }
-      that._harpTimer = setTimeout(step, 280);
-    })();
+    this._trackGainNode = g;
   };
   Engine.prototype.silenceMusic = function () {
     this._musicOn = false;
@@ -424,10 +381,6 @@
        The generative harp (phrase timer checks _musicOn) and the
        fire-hiss bed keep their stop/restart behavior — a generative
        restart doesn't read as "from the top". */
-    if (this._amb) {
-      try { this._amb.src.stop(); this._amb.lfo.stop(); } catch (e) {}
-      this._amb = null;
-    }
   };
   /* Seal/raven thud, rebuilt deeper: sub drop + knock body + felt tap. */
   Engine.prototype.thud = function () {
@@ -542,6 +495,83 @@
     hg.connect(this.master);
     hiss.start(t);
   };
+  /* Procedural Arcane Wax Seal Fracture Synthesis (ADR-0001, ADR-0013, Issue #18).
+     Zero external audio files: 4-layer physical brittle shear snap + plate resonance + pop + ribbon whoosh. */
+  Engine.prototype.sealCrack = function (boost) {
+    if (!this.ctx) return;
+    boost = boost || 1.0;
+    var c = this.ctx;
+    var t = c.currentTime;
+
+    // 1. Layer 1: High-Frequency Transient Fracture Snap (3.8ms)
+    var snapSrc = c.createBufferSource();
+    snapSrc.buffer = this.noiseBuffer(0.05);
+    var snapFilter = c.createBiquadFilter();
+    snapFilter.type = "bandpass";
+    snapFilter.frequency.setValueAtTime(4200, t);
+    snapFilter.Q.setValueAtTime(4.0, t);
+    var snapGain = c.createGain();
+    snapGain.gain.setValueAtTime(0.55 * boost, t);
+    snapGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.0042);
+    snapSrc.connect(snapFilter);
+    snapFilter.connect(snapGain);
+    snapGain.connect(this.master);
+    snapSrc.start(t);
+    snapSrc.stop(t + 0.005);
+
+    // 2. Layer 2: Mid-Frequency Brittle Wax Body Resonance (42ms)
+    var resSrc = c.createBufferSource();
+    resSrc.buffer = this.noiseBuffer(0.08);
+    var resFilt1 = c.createBiquadFilter();
+    resFilt1.type = "bandpass";
+    resFilt1.frequency.setValueAtTime(980, t);
+    resFilt1.Q.setValueAtTime(7.5, t);
+    var resFilt2 = c.createBiquadFilter();
+    resFilt2.type = "bandpass";
+    resFilt2.frequency.setValueAtTime(1340, t);
+    resFilt2.Q.setValueAtTime(8.2, t);
+    var resGain = c.createGain();
+    resGain.gain.setValueAtTime(0.38 * boost, t + 0.0008);
+    resGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+    resSrc.connect(resFilt1);
+    resSrc.connect(resFilt2);
+    resFilt1.connect(resGain);
+    resFilt2.connect(resGain);
+    resGain.connect(this.master);
+    resSrc.start(t);
+    resSrc.stop(t + 0.048);
+
+    // 3. Layer 3: Low-Frequency Tension Release Pop (32ms)
+    var popOsc = c.createOscillator();
+    popOsc.type = "triangle";
+    popOsc.frequency.setValueAtTime(185, t);
+    popOsc.frequency.exponentialRampToValueAtTime(42, t + 0.032);
+    var popGain = c.createGain();
+    popGain.gain.setValueAtTime(0.28 * boost, t);
+    popGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.034);
+    popOsc.connect(popGain);
+    popGain.connect(this.master);
+    popOsc.start(t);
+    popOsc.stop(t + 0.036);
+
+    // 4. Layer 4: Ribbon Tension Release Whoosh (85ms)
+    var whooshSrc = c.createBufferSource();
+    whooshSrc.buffer = this.noiseBuffer(0.12);
+    var whooshFilter = c.createBiquadFilter();
+    whooshFilter.type = "bandpass";
+    whooshFilter.Q.setValueAtTime(2.2, t);
+    whooshFilter.frequency.setValueAtTime(1600, t + 0.006);
+    whooshFilter.frequency.exponentialRampToValueAtTime(520, t + 0.092);
+    var whooshGain = c.createGain();
+    whooshGain.gain.setValueAtTime(0.0001, t);
+    whooshGain.gain.linearRampToValueAtTime(0.16 * boost, t + 0.016);
+    whooshGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.095);
+    whooshSrc.connect(whooshFilter);
+    whooshFilter.connect(whooshGain);
+    whooshGain.connect(this.master);
+    whooshSrc.start(t + 0.005);
+    whooshSrc.stop(t + 0.10);
+  };
 
   var engine = new Engine();
   var kindleOn = false;
@@ -579,7 +609,8 @@
     var btn = document.getElementById("kindle");
     kindleOn = window.localStorage.getItem("tapestry-muted") !== "1"
       && window.localStorage.getItem("tapestry-kindled") === "1";
-    btn.hidden = false;
+    /* Kindle is initially hidden until the seal is broken (Issue #18) */
+    btn.hidden = true;
     paint();
     /* The pulse is an invitation, not a status: stop it after the first
        interaction (or half a minute of attention). */
@@ -1617,6 +1648,41 @@
     thud: function () { if (soundOn()) engine.thud(); },
     unroll: function (dur, boost) { if (soundOn()) engine.unroll(dur, boost); },
     smolder: function () { crackleMaybe(); },
-    crackle: function () { crackleMaybe(); }
+    crackle: function () { crackleMaybe(); },
+    /* Unlock-only runs synchronously inside the seal gesture (WebKit
+       requires resume() in the immediate gesture tick); the crack SFX is
+       scheduled later, on the visual fracture frame. */
+    unlockAudio: function () {
+      engine.unlock();
+    },
+    sealCrack: function (boost) {
+      engine.unlock();
+      engine.sealCrack(boost);
+    },
+    novaRiser: function (dur) {
+      engine.unlock();
+      engine.novaRiser(dur);
+    },
+    novaBoom: function () {
+      engine.unlock();
+      engine.novaBoom();
+    },
+    kindleAfterSeal: function () {
+      kindleOn = true;
+      /* The Bard's Tale surfaces 1.6s after the fracture, fading from the
+         crack's acoustic tail — never stepping on the snap (procedural
+         seal-crack research §3.3). The crack SFX itself now fires on the
+         fracture frame after the camera pull-back (scene.js). */
+      engine.kindleMusic(1.6);
+      engine.setMaster(true);
+      window.localStorage.setItem("tapestry-kindled", "1");
+      window.localStorage.setItem("tapestry-muted", "0");
+      var btn = document.getElementById("kindle");
+      if (btn) {
+        btn.hidden = false;
+        btn.classList.add("on");
+        btn.setAttribute("aria-pressed", "true");
+      }
+    }
   };
 })();

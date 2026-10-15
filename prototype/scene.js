@@ -10,8 +10,14 @@
    NO quality watchdog (owner 2026-10-13): one fixed quality all session.
    Skips: reduced-motion, mobile UA (ADR-0015), no gsap, no WebGL (DOM stands alone). */
 import * as THREE from "three";
+window.THREE = THREE;
 
 (function () {
+  var T = new Proxy({}, {
+    get: function (_, prop) {
+      return window.Tapestry ? window.Tapestry[prop] : undefined;
+    }
+  });
   var holder = document.getElementById("gl");
   var canvas = document.getElementById("gl-canvas");
   var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -51,14 +57,14 @@ import * as THREE from "three";
        snap) off this class instead of a width breakpoint — the experience
        choice is UA-driven (ADR-0015), the layout stays viewport-driven. */
     document.documentElement.classList.add("no-3d");
+    document.documentElement.classList.add("intro-done");
     /* Never leave the page locked if the scene dies mid-intro (context
        lost, boot crash): restore scrolling + snap so the DOM page stands
        alone (critic P1). */
     document.body.style.overflow = "";
     document.documentElement.classList.remove("no-snap");
-    /* The column may be mid-crossfade — the standalone page must be
-       fully visible. */
-    if (columnEl) columnEl.style.opacity = "";
+    var col = document.querySelector(".column");
+    if (col) col.style.opacity = "";
     /* Tell app.js the loader may dissolve now — the gated loader must
        never wait on a scene that will never report ready. */
     try {
@@ -76,7 +82,7 @@ import * as THREE from "three";
     e.preventDefault();
     teardown();
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.setSize(window.innerWidth, window.innerHeight);
   /* NO shadow map at all (owner 2026-10-13: "remove the candle shadow
      from the left candle entirely, I don't want it") — and the left
@@ -89,6 +95,7 @@ import * as THREE from "three";
 
   var NIGHT = 0x14100B;
   var scene = new THREE.Scene();
+  window.__T3D_SCENE = scene;
   scene.background = new THREE.Color(NIGHT);
   /* Warm exponential fog: the far desk fades into candlelit air instead of
      a black hole (background-darkness fix; research Finding 5). */
@@ -110,6 +117,12 @@ import * as THREE from "three";
      rods fit the frame (user). */
   var PUSH_END = { p: [0, 6.8, 3.6], l: [0, 0, 2.3] };
   var WIDE_END = { p: [-0.85, 9.5, 8.1], l: [0, 0.2, 0.7] };
+  /* Issue #18 rework (owner): the desk opens CINEMATICALLY — a slow push-in
+     to the seal's close-up (OPEN legible, the ember pulse readable), and on
+     break the camera pulls back OUT to WIDE before the burst plays. Kept as
+     its own pose rather than a valley stop: it never participates in the
+     scroll scrub. */
+  var SEAL_CLOSE = { p: [0.42, 2.5, -2.55], l: [0, 0.72, -4.34] };
   var look = new THREE.Vector3().fromArray(WIDE.l);
   camera.position.fromArray(WIDE.p);
   camera.lookAt(look);
@@ -170,7 +183,8 @@ import * as THREE from "three";
         tDiffuse: { value: null },
         uGrain: { value: grainTex },
         uShift: { value: new THREE.Vector2(0, 0) },
-        uOpacity: { value: 0.10 }
+        uOpacity: { value: 0.10 },
+        uVignette: { value: 0.30 }
       },
       vertexShader: [
         "varying vec2 vUv;",
@@ -184,6 +198,7 @@ import * as THREE from "three";
         "uniform sampler2D uGrain;",
         "uniform vec2 uShift;",
         "uniform float uOpacity;",
+        "uniform float uVignette;",
         "varying vec2 vUv;",
         "vec3 overlayBlend(vec3 b, vec3 s) {",
         "  return mix(2.0 * b * s, 1.0 - 2.0 * (1.0 - b) * (1.0 - s), step(0.5, b));",
@@ -192,7 +207,9 @@ import * as THREE from "three";
         "  vec4 base = texture2D(tDiffuse, vUv);",
         "  vec2 grainCoord = (gl_FragCoord.xy + uShift) / vec2(240.0, 240.0);",
         "  vec4 grain = texture2D(uGrain, grainCoord);",
-        "  vec3 blended = overlayBlend(base.rgb, grain.rgb);",
+        "  vec2 vq = vUv - vec2(0.5);",
+        "  float vig = 1.0 - uVignette * dot(vq, vq) * 1.9;",
+        "  vec3 blended = overlayBlend(base.rgb, grain.rgb) * vig;",
         "  gl_FragColor = vec4(mix(base.rgb, blended, uOpacity), base.a);",
         "}"
       ].join("\n")
@@ -203,10 +220,12 @@ import * as THREE from "three";
     import("three/addons/postprocessing/EffectComposer.js"),
     import("three/addons/postprocessing/RenderPass.js"),
     import("three/addons/postprocessing/UnrealBloomPass.js"),
-    import("three/addons/postprocessing/OutputPass.js")
+    import("three/addons/postprocessing/OutputPass.js"),
+    import("three/addons/postprocessing/ShaderPass.js")
   ]).then(function (m) {
     var EffectComposer = m[0].EffectComposer, RenderPass = m[1].RenderPass;
     var UnrealBloomPass = m[2].UnrealBloomPass, OutputPass = m[3].OutputPass;
+    var ShaderPass = m[4].ShaderPass;
     /* Adopt only before the intro starts — a grade change mid-dolly is
        itself a seam (critic pass 2). The first composer render (bloom's
        render targets + shader compile) happens HERE, behind the loader,
@@ -218,7 +237,16 @@ import * as THREE from "three";
         new THREE.Vector2(window.innerWidth, window.innerHeight), 0.25, 0.4, 1.5);
       composer.addPass(bloomPass);
       composer.addPass(new OutputPass());
+      if (ShaderPass) sealFxBuildNovaCompose(ShaderPass);
       composer.setSize(window.innerWidth, window.innerHeight);
+      /* Half-res bloom: a blur cannot lose detail at half res, and the
+         fill saving is the biggest single live-frame win (bench knobs,
+         2026-10-14). MUST run after composer.setSize — the composer
+         propagates its own size to every pass. Kept at half on resize
+         too (see the resize handler). */
+      bloomPass.setSize(
+        Math.max(2, Math.round(window.innerWidth * 0.5)),
+        Math.max(2, Math.round(window.innerHeight * 0.5)));
       /* The first composer render must see everything the intro will
          reveal: compile/renders only touch VISIBLE objects, and the
          sheet plane + head rod sit hidden while open=0 — their first
@@ -239,7 +267,7 @@ import * as THREE from "three";
       if (topDowel) topDowel.visible = true;
     } else {
       if (plane) plane.visible = open > 0.01;
-      if (topDowel) topDowel.visible = open > 0.02;
+      if (topDowel) topDowel.visible = true;
     }
   }
 
@@ -249,7 +277,8 @@ import * as THREE from "three";
      given a visible ember-bed source on the far desk, and the cool window
      key rims the desk's left edge. r160: hemisphere/ambient/directional
      are plain multipliers; point/spot are candela. */
-  scene.add(new THREE.HemisphereLight(0x36435c, 0x1d1409, 0.42));
+  var hemiLight = new THREE.HemisphereLight(0x36435c, 0x1d1409, 0.42);
+  scene.add(hemiLight);
   var wall = new THREE.Mesh(
     new THREE.PlaneGeometry(70, 30),
     new THREE.MeshStandardMaterial({ color: 0x392b1a, roughness: 1 })
@@ -553,6 +582,1377 @@ import * as THREE from "three";
   rollGroup.add(lowDowel);
   scene.add(rollGroup);
 
+  /* ---------- Arcane Ember Sigil Seal & Shard Physics (Issue #18, ADR-0017) ----------
+     The closed scroll lies on the desk, cinched by a crimson ribbon band; the
+     Arcane Ember Sigil Seal is pressed flat onto the ribbon crossing at the
+     crown of the roll. Blood-orange wax: procedural rim displacement and
+     pour lobes, a baked stamp face (raised bevel, runic ring, white-hot
+     "OPEN") and a breathing ember pulse under the bloom pass. Breaking the
+     seal is the page's only entry: it unlocks Web Audio inside the gesture,
+     vaporizes the wax into a nova of light (round 6 rework), shakes the
+     camera, and starts the authored unroll dolly. */
+
+  /* Keep in sync with layRoll(): at open=0 the roll centre sits at
+     (0, 0.06 + 0.34, TOPZ + 0.12) with radius 0.34 — the seal rides the
+     crown, sunk a hair into the ribbon wrapping it. */
+  var SEAL_Z = TOPZ + 0.12;
+  var SEAL_Y = 0.757;
+
+  function createWaxSealGeometry() {
+    var radius = 0.30;
+    var height = 0.075;
+    var geom = new THREE.CylinderGeometry(radius, radius * 1.06, height, 48, 2, false);
+    var pos = geom.attributes.position;
+    var v = new THREE.Vector3();
+    for (var i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      var r = Math.sqrt(v.x * v.x + v.z * v.z);
+      var ang = Math.atan2(v.z, v.x);
+      /* Hand-pressed spread: lobed low-frequency waves + fine irregularity,
+         ramping from 0 at the stamp centre so the face stays round. */
+      var t2 = r / radius;
+      var wobble = 1 + t2 * t2 * (
+        0.055 * Math.sin(ang * 5 + 0.4) +
+        0.030 * Math.sin(ang * 8 + 1.2) +
+        0.016 * Math.sin(ang * 13 + 2.1));
+      v.x *= wobble;
+      v.z *= wobble;
+      /* Molten lobes sag over the outer edge where the wax poured on. */
+      if (t2 > 0.8) {
+        var drip = Math.max(0, Math.sin(ang * 3 + 0.8)) +
+                   0.7 * Math.max(0, Math.sin(ang * 7 + 2.6));
+        v.y -= drip * 0.03 * (t2 - 0.8) / 0.2;
+      }
+      pos.setXYZ(i, v.x, v.y, v.z);
+    }
+    geom.computeVertexNormals();
+    return geom;
+  }
+
+  /* The stamp face is painted once into two canvases: an sRGB albedo (wax
+     mottling, bevel shading, gold runes, cream "OPEN") and a linear data
+     map (R: height for the bump, G: roughness, B: emissive mask). Splitting
+     channels keeps the albedo painterly while the shader keys the white-hot
+     pulse off the data map only. */
+  var sealColorCanvas = document.createElement("canvas");
+  var sealDataCanvas = document.createElement("canvas");
+
+  /* Procedural vector esoteric/alchemical sigils: crisp, resolution-independent,
+     and 100% immune to system font rune glyph fallbacks (Issue #18). */
+  function drawArcaneSigil(ctx, idx, s) {
+    s = s || 10;
+    ctx.beginPath();
+    switch (idx % 12) {
+      case 0: /* Solar circle with central dot and 4 cardinal spokes */
+        ctx.arc(0, 0, s * 0.72, 0, Math.PI * 2);
+        ctx.moveTo(0, -s); ctx.lineTo(0, -s * 0.72);
+        ctx.moveTo(0, s * 0.72); ctx.lineTo(0, s);
+        ctx.moveTo(-s, 0); ctx.lineTo(-s * 0.72, 0);
+        ctx.moveTo(s * 0.72, 0); ctx.lineTo(s, 0);
+        ctx.arc(0, 0, s * 0.18, 0, Math.PI * 2);
+        break;
+      case 1: /* Alchemical Mercury / horned circle with cross */
+        ctx.arc(0, -s * 0.1, s * 0.45, 0, Math.PI * 2);
+        ctx.moveTo(-s * 0.45, -s * 0.55);
+        ctx.arc(0, -s * 0.55, s * 0.45, Math.PI, 0, true);
+        ctx.moveTo(0, s * 0.35); ctx.lineTo(0, s);
+        ctx.moveTo(-s * 0.35, s * 0.65); ctx.lineTo(s * 0.35, s * 0.65);
+        break;
+      case 2: /* Fire triangle with bisecting bar */
+        ctx.moveTo(0, -s); ctx.lineTo(s * 0.8, s * 0.65);
+        ctx.lineTo(-s * 0.8, s * 0.65); ctx.closePath();
+        ctx.moveTo(-s * 0.45, 0.1 * s); ctx.lineTo(s * 0.45, 0.1 * s);
+        break;
+      case 3: /* Inverted Earth triangle with horizontal bar */
+        ctx.moveTo(0, s); ctx.lineTo(s * 0.8, -s * 0.65);
+        ctx.lineTo(-s * 0.8, -s * 0.65); ctx.closePath();
+        ctx.moveTo(-s * 0.7, -s * 0.15); ctx.lineTo(s * 0.7, -s * 0.15);
+        break;
+      case 4: /* Crux ansata / Ankh */
+        ctx.arc(0, -s * 0.4, s * 0.4, 0, Math.PI * 2);
+        ctx.moveTo(0, 0); ctx.lineTo(0, s);
+        ctx.moveTo(-s * 0.5, s * 0.4); ctx.lineTo(s * 0.5, s * 0.4);
+        break;
+      case 5: /* Mystic diamond with central ocular core */
+        ctx.moveTo(0, -s); ctx.lineTo(s * 0.75, 0);
+        ctx.lineTo(0, s); ctx.lineTo(-s * 0.75, 0); ctx.closePath();
+        ctx.arc(0, 0, s * 0.25, 0, Math.PI * 2);
+        break;
+      case 6: /* Triskele tripartite chevron */
+        for (var a = 0; a < 3; a++) {
+          var tAng = a * (Math.PI * 2 / 3) - Math.PI / 2;
+          var x1 = Math.cos(tAng) * s, y1 = Math.sin(tAng) * s;
+          var x2 = Math.cos(tAng + 0.6) * s * 0.4, y2 = Math.sin(tAng + 0.6) * s * 0.4;
+          ctx.moveTo(0, 0); ctx.lineTo(x1, y1);
+          ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+        }
+        break;
+      case 7: /* Lunar crescent with star cross */
+        ctx.arc(0, 0, s * 0.75, -Math.PI * 0.4, Math.PI * 0.4);
+        ctx.arc(s * 0.3, 0, s * 0.6, Math.PI * 0.35, -Math.PI * 0.35, true);
+        ctx.closePath();
+        ctx.moveTo(-s * 0.35, 0); ctx.lineTo(-s * 0.1, 0);
+        ctx.moveTo(-s * 0.22, -s * 0.12); ctx.lineTo(-s * 0.22, s * 0.12);
+        break;
+      case 8: /* Alchemical Sulfur: triangle over patriarchal cross */
+        ctx.moveTo(0, -s * 0.9); ctx.lineTo(s * 0.7, -s * 0.05);
+        ctx.lineTo(-s * 0.7, -s * 0.05); ctx.closePath();
+        ctx.moveTo(0, -s * 0.05); ctx.lineTo(0, s * 0.85);
+        ctx.moveTo(-s * 0.4, s * 0.4); ctx.lineTo(s * 0.4, s * 0.4);
+        break;
+      case 9: /* Dagaz hex hourglass bind */
+        ctx.moveTo(-s * 0.65, -s * 0.85); ctx.lineTo(s * 0.65, -s * 0.85);
+        ctx.lineTo(-s * 0.65, s * 0.85); ctx.lineTo(s * 0.65, s * 0.85); ctx.closePath();
+        ctx.moveTo(-s * 0.4, 0); ctx.lineTo(s * 0.4, 0);
+        break;
+      case 10: /* Cardinal wind arrows */
+        ctx.moveTo(0, -s); ctx.lineTo(0, s);
+        ctx.moveTo(-s, 0); ctx.lineTo(s, 0);
+        ctx.moveTo(-s * 0.3, -s * 0.7); ctx.lineTo(0, -s); ctx.lineTo(s * 0.3, -s * 0.7);
+        ctx.moveTo(-s * 0.3, s * 0.7); ctx.lineTo(0, s); ctx.lineTo(s * 0.3, s * 0.7);
+        break;
+      case 11: /* Aegishjalmur tridents */
+        ctx.moveTo(0, -s * 0.9); ctx.lineTo(0, s * 0.9);
+        ctx.moveTo(-s * 0.5, -s * 0.5); ctx.lineTo(0, -s * 0.25); ctx.lineTo(s * 0.5, -s * 0.5);
+        ctx.moveTo(-s * 0.5, s * 0.5); ctx.lineTo(0, s * 0.25); ctx.lineTo(s * 0.5, s * 0.5);
+        break;
+    }
+  }
+
+  function paintSealCanvases() {
+    var size = 512;
+    sealColorCanvas.width = sealColorCanvas.height = size;
+    sealDataCanvas.width = sealDataCanvas.height = size;
+    var cx = size / 2;
+    var R = size / 2 - 6;
+    var i, ang, rr, k, rAng;
+
+    /* ---- albedo ---- */
+    var a = sealColorCanvas.getContext("2d");
+    var grad = a.createRadialGradient(cx, cx, R * 0.1, cx, cx, R);
+    grad.addColorStop(0, "#C84A16");
+    grad.addColorStop(0.62, "#A32B08");
+    grad.addColorStop(0.88, "#7C1B04");
+    grad.addColorStop(1, "#611102");
+    a.fillStyle = grad;
+    a.beginPath();
+    a.arc(cx, cx, R, 0, Math.PI * 2);
+    a.fill();
+    /* wax mottling: short translucent flecks of lighter/darker wax */
+    for (i = 0; i < 420; i++) {
+      ang = Math.random() * Math.PI * 2;
+      rr = Math.sqrt(Math.random()) * R * 0.98;
+      a.fillStyle = Math.random() < 0.5
+        ? "rgba(255,166,100," + (0.03 + Math.random() * 0.07).toFixed(3) + ")"
+        : "rgba(52,10,0," + (0.04 + Math.random() * 0.08).toFixed(3) + ")";
+      a.beginPath();
+      a.arc(cx + Math.cos(ang) * rr, cx + Math.sin(ang) * rr,
+        1 + Math.random() * 3.2, 0, Math.PI * 2);
+      a.fill();
+    }
+    /* porous, darker poured rim with a lit inner lip */
+    a.strokeStyle = "rgba(40,6,0,0.55)";
+    a.lineWidth = 14;
+    a.beginPath();
+    a.arc(cx, cx, R * 0.965, 0, Math.PI * 2);
+    a.stroke();
+    a.strokeStyle = "rgba(255,150,90,0.28)";
+    a.lineWidth = 5;
+    a.beginPath();
+    a.arc(cx, cx, R * 0.9, 0, Math.PI * 2);
+    a.stroke();
+    /* bevel read around the stamp plate */
+    a.strokeStyle = "rgba(50,8,0,0.6)";
+    a.lineWidth = 7;
+    a.beginPath();
+    a.arc(cx, cx, R * 0.72, 0, Math.PI * 2);
+    a.stroke();
+    a.strokeStyle = "rgba(255,170,110,0.33)";
+    a.lineWidth = 3;
+    a.beginPath();
+    a.arc(cx, cx, R * 0.7, 0, Math.PI * 2);
+    a.stroke();
+
+    var sigilCount = 12;
+    for (k = 0; k < sigilCount; k++) {
+      rAng = (k / sigilCount) * Math.PI * 2 - Math.PI / 2;
+      a.save();
+      a.translate(cx + Math.cos(rAng) * R * 0.545, cx + Math.sin(rAng) * R * 0.545);
+      a.rotate(rAng + Math.PI / 2);
+      a.lineWidth = 2.4;
+      a.strokeStyle = "rgba(30,5,0,0.7)";
+      drawArcaneSigil(a, k, 10);
+      a.stroke();
+      a.lineWidth = 2.0;
+      a.strokeStyle = "#F7C98F";
+      drawArcaneSigil(a, k, 10);
+      a.stroke();
+      a.restore();
+    }
+    /* the white-hot OPEN, stamped deepest */
+    a.shadowColor = "rgba(255,132,0,0.9)";
+    a.shadowBlur = 22;
+    a.fillStyle = "#FFF3DC";
+    a.font = "700 74px 'Cinzel Decorative', serif";
+    a.fillText("OPEN", cx, cx + 4);
+    a.shadowBlur = 0;
+    a.strokeStyle = "rgba(80,12,0,0.35)";
+    a.lineWidth = 2;
+    a.strokeText("OPEN", cx, cx + 4);
+
+    /* ---- data map: R height, G roughness, B emissive ---- */
+    var d = sealDataCanvas.getContext("2d");
+    d.fillStyle = "rgb(140, 105, 0)"; /* mid height, satin wax, no emissive */
+    d.beginPath();
+    d.arc(cx, cx, R, 0, Math.PI * 2);
+    d.fill();
+    /* pores in the rim: rougher, slightly recessed */
+    d.fillStyle = "rgba(110, 190, 0, 0.5)";
+    for (i = 0; i < 260; i++) {
+      ang = Math.random() * Math.PI * 2;
+      rr = R * (0.86 + Math.random() * 0.12);
+      d.beginPath();
+      d.arc(cx + Math.cos(ang) * rr, cx + Math.sin(ang) * rr,
+        1 + Math.random() * 2.5, 0, Math.PI * 2);
+      d.fill();
+    }
+    /* raised bevel plate ring + recessed groove inside it */
+    d.strokeStyle = "rgb(205, 95, 70)";
+    d.lineWidth = 12;
+    d.beginPath();
+    d.arc(cx, cx, R * 0.71, 0, Math.PI * 2);
+    d.stroke();
+    d.strokeStyle = "rgb(70, 120, 0)";
+    d.lineWidth = 6;
+    d.beginPath();
+    d.arc(cx, cx, R * 0.62, 0, Math.PI * 2);
+    d.stroke();
+    /* faint arcane veins threading the wax (dim blue channel = dim pulse) */
+    d.strokeStyle = "rgba(150, 110, 46, 0.5)";
+    d.lineWidth = 2.5;
+    for (i = 0; i < 4; i++) {
+      d.beginPath();
+      var v0 = Math.random() * Math.PI * 2;
+      d.arc(cx + (Math.random() * 60 - 30), cx + (Math.random() * 60 - 30),
+        R * (0.2 + Math.random() * 0.25), v0, v0 + Math.PI * (0.5 + Math.random()));
+      d.stroke();
+    }
+    for (k = 0; k < sigilCount; k++) {
+      rAng = (k / sigilCount) * Math.PI * 2 - Math.PI / 2;
+      d.save();
+      d.translate(cx + Math.cos(rAng) * R * 0.545, cx + Math.sin(rAng) * R * 0.545);
+      d.rotate(rAng + Math.PI / 2);
+      d.lineWidth = 2.2;
+      d.strokeStyle = "rgb(235, 85, 255)";
+      drawArcaneSigil(d, k, 10);
+      d.stroke();
+      d.restore();
+    }
+    d.textAlign = "center";
+    d.textBaseline = "middle";
+    d.font = "700 74px 'Cinzel Decorative', serif";
+    d.fillStyle = "rgb(255, 90, 255)";
+    d.fillText("OPEN", cx, cx + 4);
+  }
+  paintSealCanvases();
+  var sealColorTex = new THREE.CanvasTexture(sealColorCanvas);
+  sealColorTex.colorSpace = THREE.SRGBColorSpace;
+  sealColorTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  var sealDataTex = new THREE.CanvasTexture(sealDataCanvas);
+  /* CylinderGeometry bakes its cap UVs swapped (u follows world z, v follows
+     world x), so the stamp face renders the painted "OPEN" rotated a quarter
+     turn — it read vertically in the close-up. A shared quarter-turn on BOTH
+     canvases (albedo + data must stay aligned) lays the word along world x,
+     which the close-up camera projects as horizontal. */
+  sealColorTex.center.set(0.5, 0.5);
+  sealColorTex.rotation = Math.PI / 2;
+  sealDataTex.center.set(0.5, 0.5);
+  sealDataTex.rotation = Math.PI / 2;
+  /* Re-paint once the display font actually arrives — the boot-time bake
+     may run before Cinzel Decorative loads and stamp "OPEN" in a fallback
+     serif. Swapping canvas content under the same textures is a pixel
+     upload, never a shader event (ADR-0010). */
+  if (document.fonts && document.fonts.load) {
+    document.fonts.load("700 74px 'Cinzel Decorative'")
+      .then(function () { return document.fonts.ready; })
+      .then(function () {
+        paintSealCanvases();
+        sealColorTex.needsUpdate = true;
+        sealDataTex.needsUpdate = true;
+      })
+      .catch(function () {});
+  }
+
+  var sealUniforms = {
+    uPulse: { value: 1.0 },
+    uEmberColor: { value: new THREE.Color(0xff4500) },
+    uWhiteHotColor: { value: new THREE.Color(0xfff5e0) }
+  };
+
+  /* Nova uniforms (owner round 6: the wax VAPORIZES into the eruption).
+     uNovaFront01 sweeps 0->1 across the seal radius driving a radial
+     discard() dissolve; uNovaEdgeGlow is the white-hot burn band. Uniform
+     writes only — ADR-0010. */
+  var novaU = {
+    uNovaFront01: { value: 0 },
+    uNovaEdgeGlow: { value: 0 }
+  };
+  var sealFaceMat = new THREE.MeshPhysicalMaterial({
+    map: sealColorTex,
+    bumpMap: sealDataTex,
+    bumpScale: 0.55,
+    roughnessMap: sealDataTex,
+    roughness: 1.0,
+    metalness: 0.0,
+    clearcoat: 0.35,
+    clearcoatRoughness: 0.5,
+    sheen: 0.4,
+    sheenColor: 0xff8a4d,
+    sheenRoughness: 0.6,
+    emissive: 0xff4300,
+    emissiveIntensity: 1.0,
+    emissiveMap: sealDataTex
+  });
+  /* The poured edge + underside read as broken wax interior, not stamp. */
+  var sealSideMat = new THREE.MeshStandardMaterial({
+    color: 0x8f2508,
+    roughness: 0.58,
+    metalness: 0.02,
+    emissive: 0xff4300,
+    emissiveIntensity: 0.06
+  });
+  sealSideMat.customProgramCacheKey = function () { return "arcane-wax-side-nova-v1"; };
+  sealSideMat.onBeforeCompile = function (shader) {
+    shader.uniforms.uNovaFront01 = novaU.uNovaFront01;
+    shader.uniforms.uNovaEdgeGlow = novaU.uNovaEdgeGlow;
+    shader.vertexShader = shader.vertexShader.replace(
+      "#include <common>",
+      "#include <common>\nvarying float vNovaR;"
+    );
+    shader.vertexShader = shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      "#include <begin_vertex>\nvNovaR = length(position.xz) * 2.6667;"
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <common>",
+      "#include <common>\nuniform float uNovaFront01;\nuniform float uNovaEdgeGlow;\nvarying float vNovaR;"
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <clipping_planes_fragment>",
+      [
+        "#include <clipping_planes_fragment>",
+        "float novaThS = uNovaFront01 * 1.15;",
+        "float novaHash = fract(sin(floor(vNovaR * 11.0) * 127.1 + floor(vNovaR * 7.0) * 311.7) * 43758.5453);",
+        "float novaFieldS = mix(novaHash, vNovaR, 0.6);",
+        "if (novaFieldS < novaThS - 0.16) discard;"
+      ].join("\n")
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <emissivemap_fragment>",
+      [
+        "#include <emissivemap_fragment>",
+        "float novaEdgeS = (1.0 - smoothstep(novaThS - 0.34, novaThS - 0.02, novaFieldS)) * step(0.001, uNovaFront01);",
+        "totalEmissiveRadiance += mix(vec3(1.0, 0.4, 0.1), vec3(1.0, 0.9, 0.7), novaEdgeS) * novaEdgeS * uNovaEdgeGlow;"
+      ].join("\n")
+    );
+  };
+  sealFaceMat.customProgramCacheKey = function () {
+    return "arcane-wax-seal-nova-v3";
+  };
+  sealFaceMat.onBeforeCompile = function (shader) {
+    shader.uniforms.uPulse = sealUniforms.uPulse;
+    shader.uniforms.uEmberColor = sealUniforms.uEmberColor;
+    shader.uniforms.uWhiteHotColor = sealUniforms.uWhiteHotColor;
+    shader.uniforms.uNovaFront01 = novaU.uNovaFront01;
+    shader.uniforms.uNovaEdgeGlow = novaU.uNovaEdgeGlow;
+    shader.vertexShader = shader.vertexShader.replace(
+      "#include <common>",
+      "#include <common>\nvarying float vNovaR;"
+    );
+    shader.vertexShader = shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      "#include <begin_vertex>\nvNovaR = length(position.xz) * 2.6667;"
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <common>",
+      "#include <common>\nuniform float uNovaFront01;\nuniform float uNovaEdgeGlow;\n" +
+      "uniform vec3 uEmberColor;\nuniform vec3 uWhiteHotColor;\nuniform float uPulse;\n" +
+      "varying float vNovaR;"
+    );
+    /* Radial vaporization: dissolve FROM the eruption outward — the field
+       mixes the wax's own height mottle (data-map R) with normalized
+       radius, and discard() kills fragments the front has passed. Early
+       in the fragment so dissolved wax costs nothing. */
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <clipping_planes_fragment>",
+      "#include <clipping_planes_fragment>\n" +
+      "float novaTh = uNovaFront01 * 1.15;\n" +
+      "float novaField = vNovaR;\n" +
+      "#ifdef USE_EMISSIVEMAP\n" +
+      "  novaField = mix(texture2D(emissiveMap, vEmissiveMapUv).r, vNovaR, 0.65);\n" +
+      "#endif\n" +
+      "if (novaField < novaTh - 0.16) discard;"
+    );
+    /* The stamp's emissive answer REPLACES the stock map product: the wax
+       body keeps a warm ember breath, the rune/OPEN mask (data blue
+       channel) ignites past the bloom threshold. uPulse is a plain uniform
+       write — no program invalidation, ever (ADR-0010). The nova edge band
+       rides on top: white-hot at the burn front, ember behind it. */
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <emissivemap_fragment>",
+      "#include <emissivemap_fragment>\n" +
+      "#ifdef USE_EMISSIVEMAP\n" +
+      "  vec4 sealTexel = texture2D(emissiveMap, vEmissiveMapUv);\n" +
+      "  float glyphMask = smoothstep(0.5, 0.92, sealTexel.b);\n" +
+      "  vec3 hot = mix(uEmberColor * 1.15, uWhiteHotColor * 2.7, glyphMask);\n" +
+      "  totalEmissiveRadiance = hot * (0.16 + 0.84 * glyphMask) * uPulse;\n" +
+      "#endif\n" +
+      "float novaEdge = (1.0 - smoothstep(novaTh - 0.34, novaTh - 0.02, novaField)) *\n" +
+      "                step(0.001, uNovaFront01);\n" +
+      "vec3 novaRamp = mix(vec3(1.0, 0.36, 0.08), vec3(1.0, 0.92, 0.72), novaEdge * novaEdge);\n" +
+      "totalEmissiveRadiance += novaRamp * novaEdge * uNovaEdgeGlow;"
+    );
+  };
+
+  var sealGeo = createWaxSealGeometry();
+  /* Group order: side wall, top cap (the stamp face), bottom cap. */
+  var sealMesh = new THREE.Mesh(sealGeo, [sealSideMat, sealFaceMat, sealSideMat]);
+  sealMesh.position.set(0, SEAL_Y, SEAL_Z);
+  scene.add(sealMesh);
+
+  var ribbonMat = new THREE.MeshStandardMaterial({
+    color: 0x8a1608,
+    roughness: 0.62,
+    metalness: 0.05,
+    side: THREE.FrontSide,
+    transparent: true
+  });
+  var ribbonMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.341, 0.341, 0.28, 32, 1, true, -Math.PI * 0.25, Math.PI * 1.10),
+    ribbonMat
+  );
+  ribbonMesh.rotation.z = Math.PI / 2;
+  ribbonMesh.position.set(0, 0.40, SEAL_Z);
+  scene.add(ribbonMesh);
+
+  var sealLight = new THREE.PointLight(0xff7a33, 1.1, 2.6, 2);
+  sealLight.position.set(0, 1.3, SEAL_Z);
+  scene.add(sealLight);
+
+  /* Hover eases in tick: the pulse breathes harder and the wax swells a
+     touch when the signet hand is over the seal. */
+  var sealHover = 0, sealHoverTarget = 0;
+  function updateSealPulse(t, dt) {
+    sealHover += (sealHoverTarget - sealHover) * Math.min(1, dt * 9);
+    var p = 1 + (0.34 + 0.55 * sealHover) * Math.sin(t * 2.4) +
+            (0.13 + 0.2 * sealHover) * Math.sin(t * 5.1 + 0.8);
+    sealUniforms.uPulse.value = Math.max(0.15, p);
+    if (sealLight) sealLight.intensity = 1.1 + 0.75 * sealHover + 0.3 * Math.sin(t * 2.4);
+    sealMesh.scale.setScalar(1 + 0.045 * sealHover);
+  }
+
+  var sealOrigin = new THREE.Vector3();
+
+  /* ---------- Vapor embers (the nova's carry-off) ----------
+     One Points cloud, soft round sprite, per-point color ramp (additive +
+     vertexColors: a point whose color reaches black is out — free kills,
+     no alpha sorting). Enough count to read as the wax LEAVING, not
+     sparks: 132 motes, spawned by novaIgniteEmbers, turbiated by
+     novaUpdateEmbers (curl-ish swirl, they skim and never land). */
+  var EMBER_COUNT = 132;
+  var emberPos = new Float32Array(EMBER_COUNT * 3);
+  var emberVel = new Float32Array(EMBER_COUNT * 3);
+  var emberCol = new Float32Array(EMBER_COUNT * 3);
+  var emberLife = new Float32Array(EMBER_COUNT);
+  var emberLifeMax = new Float32Array(EMBER_COUNT);
+  var emberGeom = new THREE.BufferGeometry();
+  emberGeom.setAttribute("position", new THREE.BufferAttribute(emberPos, 3));
+  emberGeom.setAttribute("color", new THREE.BufferAttribute(emberCol, 3));
+  var emberSprite = (function () {
+    var c = document.createElement("canvas");
+    c.width = c.height = 32;
+    var g = c.getContext("2d");
+    var rg = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+    rg.addColorStop(0, "rgba(255,255,255,1)");
+    rg.addColorStop(0.35, "rgba(255,255,255,0.55)");
+    rg.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = rg;
+    g.fillRect(0, 0, 32, 32);
+    return new THREE.CanvasTexture(c);
+  })();
+  var emberMat = new THREE.PointsMaterial({
+    size: 0.1,
+    map: emberSprite,
+    vertexColors: true,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    sizeAttenuation: true
+  });
+  var emberPoints = new THREE.Points(emberGeom, emberMat);
+  emberPoints.visible = false;
+  emberPoints.renderOrder = 7;
+  emberPoints.frustumCulled = false;
+  scene.add(emberPoints);
+
+  /* ---------- Impact jolt on the parked composite ----------
+     The burst plays OVER the frozen hold target, so a camera-space kick
+     would move nothing the viewer can see. The jolt is a damped sinusoid
+     applied to the hold quad's scale instead — the whole frozen frame
+     recoils, physically, at zero main-thread cost. */
+  var quadKickTime = -1.0;
+  var QUAD_KICK_DURATION = 0.38;
+  function applyQuadKick() {
+    quadKickTime = 0.0;
+  }
+  function applyQuadKickStep(dt) {
+    if (quadKickTime < 0.0) return;
+    quadKickTime += dt;
+    if (quadKickTime >= QUAD_KICK_DURATION) {
+      quadKickTime = -1.0;
+      holdQuadMesh.scale.set(1, 1, 1);
+      return;
+    }
+    var decay = Math.exp(-12.0 * quadKickTime);
+    var s = 1 + 0.03 * decay * Math.cos(21.18 * quadKickTime);
+    holdQuadMesh.scale.set(s, s, 1);
+  }
+
+  /* ---------- O(1) screen-space hover test + projected trigger anchor ---- */
+  var _sealCenterNdc = new THREE.Vector3();
+  var _sealEdgeNdc = new THREE.Vector3();
+  var sealScreenX = 0, sealScreenY = 0, sealScreenR = 40;
+  var isHoveringSeal = false;
+  var sealBroken = false;
+  var sealPhase = "pre"; /* pre → approach → wait → pulling → burst → intro → done */
+  var lastTriggerX = -1, lastTriggerY = -1;
+
+  function projectSeal() {
+    sealMesh.getWorldPosition(_sealCenterNdc);
+    _sealCenterNdc.project(camera);
+    sealScreenX = (_sealCenterNdc.x * 0.5 + 0.5) * window.innerWidth;
+    sealScreenY = (-_sealCenterNdc.y * 0.5 + 0.5) * window.innerHeight;
+    /* project one rim-radius offset: the true on-screen radius, not a guess */
+    _sealEdgeNdc.set(sealMesh.position.x + 0.34, sealMesh.position.y, sealMesh.position.z);
+    _sealEdgeNdc.project(camera);
+    sealScreenR = Math.max(24,
+      Math.abs((_sealEdgeNdc.x * 0.5 + 0.5) * window.innerWidth - sealScreenX));
+  }
+
+  function checkSealHover(clientX, clientY) {
+    if (sealBroken || !sealMesh || !camera) return false;
+    projectSeal();
+    var dx = clientX - sealScreenX;
+    var dy = clientY - sealScreenY;
+    return (dx * dx + dy * dy) <= (sealScreenR * sealScreenR);
+  }
+
+  /* ---------- Nova eruption (owner round 6: treatment B is THE effect) ---
+     The owner's notes, implemented: the light radially FLOODS the whole
+     scene (not a local glow), the wax VAPORIZES (no shards, no mess), the
+     camera shake is violent, and a riser->boom scores it. Research:
+     docs/research/nova-eruption-implementation.md.
+
+     Grammar: ONE world-space wavefront front(t) = 6*(t-0.09) m gates every
+     channel — HDR shells (the geometric carrier), a screen-space annulus in
+     a compose pass before OutputPass, a fake-GI quartet (nova point light +
+     hemisphere boost + fog color pulse + per-material emissive answer), and
+     an asymmetric exposure arc (strike ~+2.3 EV, 0.2 s rapatronic hold,
+     tau=0.45 s filmic recovery). Every envelope is a pure function of the
+     fracture clock, so the deterministic ?shot= frames stay exact. */
+  var sealFxShot = null, sealFxAutobreak = 0;
+  (function () {
+    try {
+      var qs = new URLSearchParams(window.location.search);
+      sealFxShot = qs.get("shot");
+      if (sealFxShot && ["pre", "break", "flood"].indexOf(sealFxShot) < 0) sealFxShot = null;
+      sealFxAutobreak = parseFloat(qs.get("autobreak")) || 0;
+      if (qs.get("play") && !sealFxAutobreak) sealFxAutobreak = 1.4;
+    } catch (e) {}
+  })();
+
+  var sealFx = {
+    clock: -1,     /* seconds since the eruption; -1 = not lit yet */
+    charge: -1,    /* click -> eruption gather (the pull-back IS the riser) */
+    waitClock: 0,
+    live: false,   /* the flood needs the full render path (fog/ambient/emissive) */
+    captureSaved: null
+  };
+  var sealFxScale = 1;         /* hit-stop + speed ramp on the burst systems */
+  var shotFrozen = false;
+  var sealFxStagedExposure = 0;
+  var novaBaseFogColor = scene.fog.color.clone();
+  var novaBaseFogDensity = scene.fog.density;
+  var novaBaseHemi = hemiLight.intensity;
+  var novaBaseFov = camera.fov;
+  var novaFogFlood = new THREE.Color(0xffdcae);
+
+  function novaClamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+  function novaSmooth(a, b, x) {
+    var t = novaClamp01((x - a) / (b - a));
+    return t * t * (3 - 2 * t);
+  }
+
+  /* ---- pure envelopes of the fracture clock (live + staging share them) */
+  function novaTimeScaleAt(clk) {
+    /* 90ms hit-stop on the eruption frame, then the speed ramp back. */
+    return (clk < 0.09) ? 0.02 : 0.22 + 0.78 * novaSmooth(0.09, 1.1, clk);
+  }
+  function novaFrontAt(clk) { return 6 * Math.max(0, clk - 0.09); }
+  function novaFront01At(clk) {
+    /* v3: the WAX burns slower than light travels — a 1.5 m/s dissolve
+       front (~0.3s of visible burn-away) instead of the 6 m/s light front,
+       which vaporized the seal in 2 frames. */
+    return novaClamp01((1.5 * Math.max(0, clk - 0.09)) / 0.44);
+  }
+  function novaGAt(clk) {
+    /* scalar flood gate: rises while the front crosses the desk, holds
+       through the white-out, relaxes through the recovery. */
+    return novaSmooth(0.09, 0.55, clk) * Math.exp(-Math.max(0, clk - 0.75) * 2.2);
+  }
+  function novaExpMulAt(clk) {
+    /* TWO-BEAT arc (v2): the wave crosses the desk VISIBLY first (only a
+       mild lift), the white-out lands as the front reaches the far edge
+       (rapatronic hold), then tau=0.45 filmic recovery — v1 spiked at
+       0.04s and the flash masked the crossing entirely. */
+    var strike = novaSmooth(0.26, 0.38, clk);
+    var hold = (clk < 0.72) ? 1 : Math.exp(-(clk - 0.72) / 0.45);
+    return 1 + 1.55 * strike * hold;
+  }
+  function novaLightAt(clk) {
+    return 70 * novaSmooth(0.02, 0.07, clk) * Math.exp(-Math.max(0, clk - 0.09) * 2.2);
+  }
+  function novaTraumaAt(clk) {
+    /* Eiserloh: shake = trauma^2. Spike at hit-stop exit; v2 decays slower
+       (0.85/s) so the violence stays visible THROUGH the white-out into
+       the recovery — shake hidden inside a blown frame is shake wasted. */
+    return (clk < 0.09) ? 0 : 0.95 * Math.exp(-(clk - 0.09) * 0.85);
+  }
+  function novaCoreAAt(clk) {
+    return novaSmooth(0, 0.03, clk) * Math.exp(-Math.max(0, clk - 0.05) * 6.5);
+  }
+  function novaCoreRAt(clk) { return 0.10 + 0.42 * novaSmooth(0, 0.5, clk); }
+  function novaShellAAt(clk) {
+    return novaSmooth(0.02, 0.1, clk) * Math.exp(-Math.max(0, clk - 0.28) * 2.6);
+  }
+
+  /* ---- shared uniforms for every material that ANSWERS the flood ---- */
+  var novaSharedU = {
+    uNovaG: { value: 0 },
+    uNovaFrontM: { value: 0 },
+    uNovaColor: { value: new THREE.Color(1.35, 1.0, 0.6) },
+    uNovaXZ: { value: new THREE.Vector2(0, SEAL_Z) }
+  };
+
+  /* ---- the desk itself answers (tableMat stays the PBR material, so the
+     answer rides an emissive injection — same mechanics as the seal's) ---- */
+  tableMat.customProgramCacheKey = function () { return "table-nova-v1"; };
+  tableMat.onBeforeCompile = function (shader) {
+    shader.uniforms.uNovaG = novaSharedU.uNovaG;
+    shader.uniforms.uNovaFrontM = novaSharedU.uNovaFrontM;
+    shader.uniforms.uNovaColor = novaSharedU.uNovaColor;
+    shader.uniforms.uNovaXZ = novaSharedU.uNovaXZ;
+    shader.vertexShader = shader.vertexShader.replace(
+      "#include <common>",
+      "#include <common>\nvarying vec3 vNovaWP;"
+    );
+    shader.vertexShader = shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      "#include <begin_vertex>\nvNovaWP = (modelMatrix * vec4(transformed, 1.0)).xyz;"
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <common>",
+      "#include <common>\nuniform float uNovaG;\nuniform float uNovaFrontM;\nuniform vec3 uNovaColor;\nuniform vec2 uNovaXZ;\nvarying vec3 vNovaWP;"
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <emissivemap_fragment>",
+      ["#include <emissivemap_fragment>",
+       "float novaD = distance(vNovaWP.xz, uNovaXZ);",
+       "float novaHit = smoothstep(uNovaFrontM, uNovaFrontM - 0.9, novaD);",
+       "totalEmissiveRadiance += uNovaColor * uNovaG * novaHit;"].join("\n")
+    );
+  };
+
+  /* ---- nova light: the strike-decay fill that reaches the ink pots ---- */
+  var novaLight = new THREE.PointLight(0xffd9a8, 0, 26, 2);
+  novaLight.visible = false;
+  scene.add(novaLight);
+
+  /* ---- HDR shells: inner filled core (inverted fresnel) + outer rim ---- */
+  var novaCoreMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(6.0, 5.0, 4.0) },
+      uAlpha: { value: 0 }
+    },
+    vertexShader: [
+      "varying vec3 vNrm;",
+      "varying vec3 vView;",
+      "void main() {",
+      "  vNrm = normalize(normalMatrix * normal);",
+      "  vec4 mv = modelViewMatrix * vec4(position, 1.0);",
+      "  vView = normalize(-mv.xyz);",
+      "  gl_Position = projectionMatrix * mv;",
+      "}"
+    ].join("\n"),
+    fragmentShader: [
+      "uniform vec3 uColor;",
+      "uniform float uAlpha;",
+      "varying vec3 vNrm;",
+      "varying vec3 vView;",
+      "void main() {",
+      "  float face = pow(abs(dot(normalize(vNrm), normalize(vView))), 1.6);",
+      "  gl_FragColor = vec4(uColor * face, uAlpha * face);",
+      "}"
+    ].join("\n"),
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+  });
+  var novaCore = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 24), novaCoreMat);
+  novaCore.visible = false;
+  novaCore.renderOrder = 8;
+  scene.add(novaCore);
+
+  var novaShellMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(1.8, 1.25, 0.62) },
+      uAlpha: { value: 0 }
+    },
+    vertexShader: novaCoreMat.vertexShader,
+    fragmentShader: [
+      "uniform vec3 uColor;",
+      "uniform float uAlpha;",
+      "varying vec3 vNrm;",
+      "varying vec3 vView;",
+      "void main() {",
+      "  float fr = pow(1.0 - abs(dot(normalize(vNrm), normalize(vView))), 3.2);",
+      "  gl_FragColor = vec4(uColor * fr, uAlpha * fr);",
+      "}"
+    ].join("\n"),
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.BackSide
+  });
+  var novaShell = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 24), novaShellMat);
+  novaShell.visible = false;
+  novaShell.renderOrder = 8;
+  scene.add(novaShell);
+
+  /* ---- desk light pool: the wave made visible ON a surface ---- */
+  var novaPoolMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uFront: { value: 0 },
+      uE: { value: 0 },
+      uColor: { value: new THREE.Color(2.6, 1.9, 1.05) }
+    },
+    vertexShader: "varying vec2 vUvP;\nvoid main() { vUvP = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+    fragmentShader: [
+      "uniform float uFront;",
+      "uniform float uE;",
+      "uniform vec3 uColor;",
+      "varying vec2 vUvP;",
+      "void main() {",
+      "  vec2 d = vUvP - vec2(0.5);",
+      "  float dist = length(d) * 2.0;",
+      "  if (dist >= 1.0 || uE <= 0.001) discard;",
+      "  float r = dist * 3.6;",
+      "  float dFront = uFront - r;",
+      "  if (dFront < -0.15) discard;",
+      "  float ring = smoothstep(-0.15, 0.0, dFront) * smoothstep(0.6, 0.0, dFront);",
+      "  float trail = (dFront >= 0.0) ? exp(-dFront * 2.2) : 0.0;",
+      "  float edgeFalloff = smoothstep(1.0, 0.72, dist);",
+      "  float intensity = (ring * 1.8 + trail * 0.7) * edgeFalloff * uE;",
+      "  gl_FragColor = vec4(uColor * intensity, intensity);",
+      "}"
+    ].join("\n"),
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  });
+  var novaPool = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 3.6), novaPoolMat);
+  novaPool.rotation.x = -Math.PI / 2;
+  novaPool.position.set(0, 0.078, SEAL_Z);
+  novaPool.visible = false;
+  novaPool.renderOrder = 6;
+  scene.add(novaPool);
+
+  /* ---- vapor smoke: billboarded soft quads, procedural canvas alpha ---- */
+  var novaSmokeTex = (function () {
+    var c = document.createElement("canvas");
+    c.width = c.height = 128;
+    var g = c.getContext("2d");
+    for (var i = 0; i < 26; i++) {
+      var ang = Math.random() * Math.PI * 2;
+      var rr = Math.random() * 34;
+      var x = 64 + Math.cos(ang) * rr, y = 64 + Math.sin(ang) * rr;
+      var rr2 = 14 + Math.random() * 22;
+      var rg = g.createRadialGradient(x, y, 0, x, y, rr2);
+      rg.addColorStop(0, "rgba(255,255,255,0.10)");
+      rg.addColorStop(1, "rgba(255,255,255,0)");
+      g.fillStyle = rg;
+      g.fillRect(0, 0, 128, 128);
+    }
+    return new THREE.CanvasTexture(c);
+  })();
+  var NOVA_SMOKE = 9;
+  var novaSmoke = [];
+  for (var nsI = 0; nsI < NOVA_SMOKE; nsI++) {
+    var sm = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: novaSmokeTex,
+      color: 0x7d6c58,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false
+    }));
+    sm.visible = false;
+    sm.renderOrder = 9;
+    scene.add(sm);
+    novaSmoke.push(sm);
+  }
+  var novaSmokeClock = -1;
+
+  /* ---- screen-space flood: analytic annulus added before OutputPass ---- */
+  var novaCompose = null;
+  function sealFxBuildNovaCompose(ShaderPass) {
+    novaCompose = new ShaderPass({
+      uniforms: {
+        tDiffuse: { value: null },
+        uSunUv: { value: new THREE.Vector2(0.5, 0.5) },
+        uAspect: { value: 1.0 },
+        uMetersPerUv: { value: 2.0 },
+        uFront: { value: 0.0 },
+        uFloodColor: { value: new THREE.Color(2.4, 2.05, 1.5) },
+        uFloodE: { value: 0.0 },
+        uCoreGlow: { value: 0.0 }
+      },
+      vertexShader: "varying vec2 vUvN;\nvoid main() { vUvN = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+      fragmentShader: [
+        "uniform sampler2D tDiffuse;",
+        "uniform vec2 uSunUv;",
+        "uniform float uAspect;",
+        "uniform float uMetersPerUv;",
+        "uniform float uFront;",
+        "uniform float uFloodE;",
+        "uniform float uCoreGlow;",
+        "uniform vec3 uFloodColor;",
+        "varying vec2 vUvN;",
+        "void main() {",
+        "  vec4 base = texture2D(tDiffuse, vUvN);",
+        "  vec2 d2 = vUvN - uSunUv;",
+        "  d2.x *= uAspect;",
+        "  float d = length(d2) * uMetersPerUv;",
+        "  float flood = smoothstep(uFront, uFront - 0.7, d);",
+        "  float band = exp(-abs(d - uFront) * 2.4);",
+        "  vec3 lift = uFloodColor * (flood * 0.55 + band * 1.5) * uFloodE;",
+        "  lift += uFloodColor * uCoreGlow / (d * 6.0 + 0.35);",
+        "  gl_FragColor = vec4(base.rgb + lift, base.a);",
+        "}"
+      ].join("\n")
+    });
+    /* insert BEFORE OutputPass so the lift tone-maps with the frame */
+    composer.passes.splice(composer.passes.length - 1, 0, novaCompose);
+  }
+
+  /* ---- embers: the wax LEAVING (curl-ish turbulence, no landing) ---- */
+  var novaEmberT = 0;
+  function novaIgniteEmbers(origin) {
+    for (var i = 0; i < EMBER_COUNT; i++) {
+      var i3 = i * 3;
+      var ang = Math.random() * Math.PI * 2;
+      var rad = Math.sqrt(Math.random()) * 0.24;
+      emberPos[i3] = origin.x + Math.cos(ang) * rad;
+      emberPos[i3 + 1] = origin.y + 0.02 + Math.random() * 0.05;
+      emberPos[i3 + 2] = origin.z + Math.sin(ang) * rad;
+      var spd = 0.9 + Math.random() * 1.9;
+      emberVel[i3] = Math.cos(ang) * spd;
+      emberVel[i3 + 1] = 1.3 + Math.random() * 2.0;
+      emberVel[i3 + 2] = Math.sin(ang) * spd + 0.4;
+      emberLifeMax[i] = 0.9 + Math.random() * 0.9;
+      emberLife[i] = emberLifeMax[i];
+      emberCol[i3] = 3.4; emberCol[i3 + 1] = 2.5; emberCol[i3 + 2] = 1.5;
+    }
+    emberGeom.attributes.position.needsUpdate = true;
+    emberGeom.attributes.color.needsUpdate = true;
+    emberPoints.visible = true;
+    emberMat.size = 0.13; /* v2: the burst reads denser at the break */
+    novaEmberT = 0;
+  }
+  function novaUpdateEmbers(dt) {
+    novaEmberT += dt;
+    var anyAlive = false;
+    for (var i = 0; i < EMBER_COUNT; i++) {
+      var i3 = i * 3;
+      if (emberLife[i] <= 0) continue;
+      anyAlive = true;
+      emberLife[i] -= dt;
+      /* two out-of-phase lattices = cheap curl noise: the motes swirl,
+         not just rise (Bridson-lite, research section 2.4) */
+      emberVel[i3] += Math.sin(emberPos[i3 + 1] * 3.1 + novaEmberT * 2.9 + i * 0.31) * 0.85 * dt;
+      emberVel[i3 + 2] += Math.cos(emberPos[i3 + 1] * 2.6 - novaEmberT * 2.4 + i * 0.53) * 0.85 * dt;
+      emberVel[i3 + 1] -= 1.35 * dt;
+      emberVel[i3] *= 1 - 0.5 * dt;
+      emberVel[i3 + 2] *= 1 - 0.5 * dt;
+      emberPos[i3] += emberVel[i3] * dt;
+      emberPos[i3 + 1] += emberVel[i3 + 1] * dt;
+      emberPos[i3 + 2] += emberVel[i3 + 2] * dt;
+      if (emberPos[i3 + 1] < 0.05) emberPos[i3 + 1] = 0.05; /* skim, never land */
+      var k = Math.max(0, emberLife[i] / emberLifeMax[i]);
+      /* white-hot -> ember -> black (additive: black is a free kill) */
+      emberCol[i3] = 3.2 * Math.pow(k, 1.1);
+      emberCol[i3 + 1] = 2.4 * Math.pow(k, 1.9);
+      emberCol[i3 + 2] = 1.5 * Math.pow(k, 3.2);
+      if (emberLife[i] <= 0) {
+        emberCol[i3] = emberCol[i3 + 1] = emberCol[i3 + 2] = 0;
+        emberPos[i3 + 1] = -5; /* park dead points under the desk */
+      }
+    }
+    if (anyAlive) {
+      emberGeom.attributes.position.needsUpdate = true;
+      emberGeom.attributes.color.needsUpdate = true;
+    } else {
+      emberPoints.visible = false;
+    }
+  }
+  function novaUpdateSmoke(dt) {
+    if (novaSmokeClock < 0) return;
+    novaSmokeClock += dt;
+    var t = novaSmokeClock;
+    var k = Math.min(1, t / 1.6);
+    for (var i = 0; i < NOVA_SMOKE; i++) {
+      var s = novaSmoke[i];
+      var ang = (i / NOVA_SMOKE) * Math.PI * 2 + 0.4;
+      s.position.set(
+        sealOrigin.x + Math.cos(ang) * (0.1 + 0.34 * k),
+        sealOrigin.y + (0.22 + 0.75 * k) * (0.7 + 0.3 * Math.sin(i * 2.1)),
+        sealOrigin.z + Math.sin(ang) * (0.1 + 0.34 * k));
+      var sc = 0.28 + 0.95 * k;
+      s.scale.set(sc, sc, 1);
+      s.material.opacity = 0.5 * novaSmooth(0.05, 0.35, t) *
+        Math.exp(-Math.max(0, t - 0.8) * 1.6);
+    }
+    if (t > 2.6) {
+      novaSmokeClock = -1;
+      for (var j = 0; j < NOVA_SMOKE; j++) novaSmoke[j].visible = false;
+    }
+  }
+
+  /* ---- trauma camera (Eiserohl grammar, roll-dominant for top-down) ---- */
+  var novaNoiseT = 0;
+  function novaNoise1(x, seed) {
+    var i = Math.floor(x), f = x - i;
+    var h = function (n) {
+      var s = Math.sin(n * 127.1 + seed * 311.7) * 43758.5453;
+      return s - Math.floor(s);
+    };
+    var u = f * f * (3 - 2 * f);
+    return h(i) * (1 - u) + h(i + 1) * u;
+  }
+  function novaApplyCamera(clk, dt) {
+    novaNoiseT += dt;
+    var trauma = (clk >= 0) ? novaTraumaAt(clk) : 0;
+    var shake = trauma * trauma;
+    if (shake > 0.0004) {
+      var sn = shake / 0.9025; /* normalized to the 0.95 trauma ceiling */
+      var tt = novaNoiseT * 28; /* ~28 Hz: above drift, below buzz */
+      camera.position.x += 0.020 * (novaNoise1(tt, 5.1) - 0.5) * 2 * sn;
+      camera.position.y += 0.034 * (novaNoise1(tt, 9.4) - 0.5) * 2 * sn;
+      camera.position.z += 0.020 * (novaNoise1(tt, 15.8) - 0.5) * 2 * sn;
+      camera.rotateZ(0.085 * (novaNoise1(tt, 11.3) - 0.5) * 2 * sn);
+      camera.rotateX(0.045 * (novaNoise1(tt, 27.7) - 0.5) * 2 * sn);
+      camera.rotateY(0.045 * (novaNoise1(tt, 41.9) - 0.5) * 2 * sn);
+      camera.fov = novaBaseFov + 8 * sn;
+      camera.updateProjectionMatrix();
+    } else if (camera.fov !== novaBaseFov) {
+      camera.fov = novaBaseFov;
+      camera.updateProjectionMatrix();
+    }
+  }
+
+  /* ---- the frame-by-frame application (live update + staging share it) */
+  function novaApply(clk, dt) {
+    if (clk < 0) return;
+    sealFxScale = novaTimeScaleAt(clk);
+    var g = novaGAt(clk);
+    var front = novaFrontAt(clk);
+
+    /* fake-GI quartet */
+    novaLight.intensity = novaLightAt(clk);
+    hemiLight.intensity = novaBaseHemi * (1 + 3.2 * g);
+    scene.fog.color.copy(novaBaseFogColor).lerp(novaFogFlood, 0.72 * g);
+    scene.fog.density = novaBaseFogDensity + 0.065 * g;
+    novaSharedU.uNovaG.value = g;
+    novaSharedU.uNovaFrontM.value = front;
+
+    /* exposure arc (camChase wrote the base grade earlier this frame) */
+    renderer.toneMappingExposure *= novaExpMulAt(clk);
+
+    /* vaporization */
+    var f01 = novaFront01At(clk);
+    novaU.uNovaFront01.value = f01;
+    novaU.uNovaEdgeGlow.value = 10 * novaSmooth(0.09, 0.18, clk) *
+      Math.exp(-Math.max(0, clk - 0.55) * 2.4);
+    if (clk > 0.9 && sealMesh.visible) sealMesh.visible = false;
+    if (ribbonMesh) {
+      ribbonMat.opacity = Math.max(0, 1 - f01 * 1.5);
+      ribbonMesh.scale.setScalar(1 + 0.06 * f01);
+      if (f01 >= 0.99 && ribbonMesh.visible) ribbonMesh.visible = false;
+    }
+
+    /* shells */
+    var ca = novaCoreAAt(clk);
+    novaCore.visible = ca > 0.004;
+    novaCoreMat.uniforms.uAlpha.value = ca;
+    novaCore.scale.setScalar(novaCoreRAt(clk));
+    var sa = novaShellAAt(clk);
+    novaShell.visible = sa > 0.004;
+    novaShellMat.uniforms.uAlpha.value = sa;
+    novaShell.scale.setScalar(Math.min(4.2, Math.max(0.3, front)));
+
+    /* desk pool: fast expanding radial flash on the desk under the seal, decays before unroll */
+    var pe = 1.35 * novaSmooth(0.09, 0.35, clk) * Math.exp(-Math.max(0, clk - 0.45) * 5.0);
+    novaPool.visible = pe > 0.01 && sealPhase === "burst";
+    novaPoolMat.uniforms.uFront.value = front;
+    novaPoolMat.uniforms.uE.value = pe;
+
+    /* screen-space flood */
+    if (novaCompose) {
+      _sealCenterNdc.copy(sealOrigin).project(camera);
+      novaCompose.uniforms.uSunUv.value.set(
+        _sealCenterNdc.x * 0.5 + 0.5, _sealCenterNdc.y * 0.5 + 0.5);
+      novaCompose.uniforms.uAspect.value = window.innerWidth / Math.max(1, window.innerHeight);
+      novaCompose.uniforms.uMetersPerUv.value =
+        2 * Math.tan(camera.fov * Math.PI / 360) * camera.position.distanceTo(sealOrigin);
+      novaCompose.uniforms.uFront.value = front * 1.1;
+      novaCompose.uniforms.uFloodE.value =
+        1.05 * novaSmooth(0.09, 0.2, clk) * Math.exp(-Math.max(0, clk - 0.9) * 2.0);
+      novaCompose.uniforms.uCoreGlow.value =
+        1.15 * novaSmooth(0, 0.03, clk) * Math.exp(-clk * 2.9);
+    }
+
+    if (dt > 0) {
+      if (emberPoints.visible) novaUpdateEmbers(dt * sealFxScale);
+      novaUpdateSmoke(dt * sealFxScale);
+    }
+  }
+
+  function novaUpdate(dt) {
+    sealFx.waitClock += dt;
+    if (sealFx.charge >= 0) sealFx.charge += dt;
+    if (sealFx.clock >= 0) sealFx.clock += dt;
+
+    /* charge beat: the pull-back window IS the riser's visual twin — the
+       wax gathers light, breathes harder, the frame creeps brighter. */
+    if (sealFx.clock < 0 && sealFx.charge >= 0) {
+      var ck = Math.min(1, sealFx.charge / 0.59);
+      var swell = ck * ck;
+      sealUniforms.uPulse.value = Math.max(sealUniforms.uPulse.value, 1 + 3.2 * swell);
+      if (sealLight) sealLight.intensity = 1.1 + 20 * swell * swell;
+      renderer.toneMappingExposure += 0.3 * swell * swell;
+      novaCore.visible = true;
+      novaCore.position.copy(sealMesh.position);
+      novaCoreMat.uniforms.uAlpha.value = 0.22 * swell;
+      novaCore.scale.setScalar(0.08 + 0.09 * swell);
+      return;
+    }
+
+    if (sealFx.clock >= 0) {
+      novaApply(sealFx.clock, dt);
+      novaApplyCamera(sealFx.clock, dt);
+    }
+  }
+
+  /* ---------- Ignition ---------- */
+  function sealFxIgnite(origin) {
+    sealFx.clock = 0;
+    sealFx.charge = -1;
+    sealFx.live = true;
+    sealOrigin.copy(origin);
+    novaCore.position.copy(origin);
+    novaShell.position.copy(origin);
+    novaLight.position.set(origin.x, origin.y + 0.55, origin.z);
+    novaLight.visible = true;
+    novaPool.position.set(origin.x, 0.078, origin.z);
+    novaSharedU.uNovaXZ.value.set(origin.x, origin.z);
+    novaIgniteEmbers(origin);
+    novaSmokeClock = 0;
+    for (var i = 0; i < NOVA_SMOKE; i++) novaSmoke[i].visible = true;
+  }
+
+  /* ---------- Capture hooks (the frozen-dwell base stays clean) -------- */
+  function sealFxHideForCapture() {
+    sealFx.captureSaved = {
+      fogColor: scene.fog.color.clone(),
+      fogDensity: scene.fog.density,
+      hemi: hemiLight.intensity,
+      novaG: novaSharedU.uNovaG.value,
+      novaFrontM: novaSharedU.uNovaFrontM.value,
+      vis: []
+    };
+    var objs = [novaCore, novaShell, novaPool, novaLight];
+    for (var i = 0; i < NOVA_SMOKE; i++) objs.push(novaSmoke[i]);
+    for (var j = 0; j < objs.length; j++) {
+      sealFx.captureSaved.vis.push([objs[j], objs[j].visible]);
+      objs[j].visible = false;
+    }
+    novaSharedU.uNovaG.value = 0;
+    novaSharedU.uNovaFrontM.value = 0;
+    scene.fog.color.copy(novaBaseFogColor);
+    scene.fog.density = novaBaseFogDensity;
+    hemiLight.intensity = novaBaseHemi;
+  }
+  function sealFxRestoreAfterCapture() {
+    var s = sealFx.captureSaved;
+    if (!s) return;
+    scene.fog.color.copy(s.fogColor);
+    scene.fog.density = s.fogDensity;
+    hemiLight.intensity = s.hemi;
+    novaSharedU.uNovaG.value = s.novaG;
+    novaSharedU.uNovaFrontM.value = s.novaFrontM;
+    for (var i = 0; i < s.vis.length; i++) s.vis[i][0].visible = s.vis[i][1];
+    sealFx.captureSaved = null;
+  }
+
+  /* ---------- Reset (staging/reload) ---------- */
+  function sealFxResetScene() {
+    sealFx.clock = -1;
+    sealFx.charge = -1;
+    sealFx.live = false;
+    sealFxScale = 1;
+    novaU.uNovaFront01.value = 0;
+    novaU.uNovaEdgeGlow.value = 0;
+    novaSharedU.uNovaG.value = 0;
+    novaSharedU.uNovaFrontM.value = 0;
+    scene.fog.color.copy(novaBaseFogColor);
+    scene.fog.density = novaBaseFogDensity;
+    hemiLight.intensity = novaBaseHemi;
+    novaLight.intensity = 0;
+    novaLight.visible = false;
+    novaCore.visible = false;
+    novaShell.visible = false;
+    novaPool.visible = false;
+    novaCoreMat.uniforms.uAlpha.value = 0;
+    novaShellMat.uniforms.uAlpha.value = 0;
+    novaSmokeClock = -1;
+    for (var i = 0; i < NOVA_SMOKE; i++) {
+      novaSmoke[i].visible = false;
+      novaSmoke[i].material.opacity = 0;
+    }
+    for (var e = 0; e < EMBER_COUNT; e++) emberLife[e] = 0;
+    emberPoints.visible = false;
+    ribbonMat.opacity = 1;
+    if (ribbonMesh) {
+      ribbonMesh.visible = true;
+      ribbonMesh.scale.setScalar(1);
+    }
+    sealMesh.visible = true;
+    sealMesh.scale.setScalar(1);
+    camera.fov = novaBaseFov;
+    camera.updateProjectionMatrix();
+    if (novaCompose) {
+      novaCompose.uniforms.uFloodE.value = 0;
+      novaCompose.uniforms.uCoreGlow.value = 0;
+    }
+    sealPhase = "wait";
+  }
+
+  /* ---------- Deterministic integration for staged frames ---------- */
+  function sealFxIntegrate(seconds) {
+    var step = 1 / 60;
+    for (var acc = 0; acc < seconds; acc += step) {
+      var clk = sealFx.clock + acc;
+      var sdt = step * novaTimeScaleAt(clk);
+      if (emberPoints.visible) novaUpdateEmbers(sdt);
+      novaUpdateSmoke(sdt);
+    }
+    sealFx.clock += seconds;
+  }
+
+  function sealFxStageShot(moment) {
+    sealFxResetScene();
+    shotFrozen = true;
+    if (moment === "pre") {
+      sealFx.waitClock = 2.2;
+      setCamSeal(1);
+      sealUniforms.uPulse.value = 1.35;
+    } else {
+      var target = (moment === "break") ? 0.14 : 0.45;
+      setCamSeal(0);
+      sealMesh.getWorldPosition(sealOrigin);
+      sealBroken = true;
+      sealFx.clock = 0;
+      sealFxIgnite(sealOrigin);
+      sealPhase = "burst";
+      sealFxIntegrate(target);
+      novaApply(sealFx.clock, 0);
+      novaNoiseT = target;
+      novaApplyCamera(target, 0);
+      sealFxStagedExposure = 1.38 * novaExpMulAt(target);
+      renderer.toneMappingExposure = sealFxStagedExposure;
+    }
+    window.__shotReady = true;
+  }
+  window.__sealShot = function (m) {
+    sealFxStageShot(m || "flood");
+    return "staged " + (m || "flood");
+  };
+  window.__sealFx = sealFx;
+
+  /* Compile the nova materials behind the loader (renderer.compile only
+     sees VISIBLE objects — same rule as every other hidden system). */
+  (function () {
+    var objs = [novaCore, novaShell, novaPool];
+    for (var i = 0; i < NOVA_SMOKE; i++) objs.push(novaSmoke[i]);
+    for (var j = 0; j < objs.length; j++) objs[j].visible = true;
+    novaLight.visible = true;
+    try { renderer.compile(scene, camera); } catch (e) {}
+    for (var k = 0; k < objs.length; k++) objs[k].visible = false;
+    novaLight.visible = false;
+  })();
+
+  /* Cinematic approach (owner, issue-18 rework): after the loader dissolves     the camera pushes in from the wide desk to the seal's close-up — the
+     stamped OPEN and the ember pulse are the whole show until the break. */
+  function startSealApproach() {
+    if (sealFxShot) { sealFxStageShot(sealFxShot); return; }
+    if (dead || sealBroken || sealPhase !== "pre") return;
+    sealPhase = "approach";
+    var push = { k: 0 };
+    window.gsap.to(push, {
+      k: 1, duration: 1.9, ease: "power2.inOut",
+      onUpdate: function () { setCamSeal(push.k); },
+      onComplete: function () {
+        sealPhase = "wait";
+        if (sealFxAutobreak > 0) {
+          window.gsap.delayedCall(sealFxAutobreak, function () { breakSeal(); });
+        }
+      }
+    });
+  }
+
+  function breakSeal() {
+    if (sealBroken) return;
+    sealBroken = true;
+    sealPhase = "pulling";
+    holder.style.pointerEvents = "auto"; /* stray clicks die here until handoff */
+
+    /* Web Audio unlocks synchronously inside the gesture tick (WebKit drops
+       activation across async boundaries). The crack SFX itself waits for
+       the visual fracture at the end of the pull-back, so sound and
+       picture land on the same frame. */
+    if (T && T.unlockAudio) T.unlockAudio();
+
+    var sealTriggerBtn = document.getElementById("seal-trigger");
+    if (sealTriggerBtn) sealTriggerBtn.hidden = true;
+    document.body.classList.remove("seal-interactive");
+    sealHover = 0;
+    sealHoverTarget = 0;
+
+    sealFx.charge = 0; /* the pull-back IS the riser's visual twin */
+    if (T) T.novaRiser(0.52);
+    breakSealGo();
+  }
+  /* 1. Quick smooth pull-back to the wide desk framing — an authored
+        ease, never a cut. Reverses from wherever the approach stands. */
+  function breakSealGo() {
+    var pull = { k: sealMix };
+    window.gsap.to(pull, {
+      k: 0, duration: 0.52, ease: "power2.inOut",
+      onUpdate: function () { setCamSeal(pull.k); },
+      onComplete: function () {
+        sealPhase = "burst";
+        /* The tick parks the scene on its next frame (burst branch), then
+           burstSealNow fires behind one cheap parked frame — the capture's
+           single heavy render never lands on a fracture frame. */
+        window.gsap.delayedCall(0.07, burstSealNow);
+      }
+    });
+  }
+
+  function burstSealNow() {
+    if (sealPhase !== "burst") return;
+
+    /* 2. The wax stays — it VAPORIZES as the front crosses it (owner
+          round 6: no shards, no mess). The nova owns light from here. */
+    sealMesh.getWorldPosition(sealOrigin);
+    if (sealLight) sealLight.visible = false;
+    sealUniforms.uPulse.value = 1;
+    sealFxIgnite(sealOrigin);
+    applyQuadKick();
+    /* Crackle lands instantly with the fracture, followed by nova boom at hit-stop exit (0.09s) */
+    if (T && T.sealCrack) T.sealCrack(1.2);
+    if (window.gsap && T) {
+      window.gsap.delayedCall(0.09, function () { T.novaBoom(); });
+      window.gsap.delayedCall(0.62, function () { if (T) T.crackle(0.5); });
+      window.gsap.delayedCall(1.05, function () { if (T) T.crackle(0.35); });
+    }
+
+    /* 3. The shockwave is IN the scene now: two HDR light rings sweeping
+          the desk plus the ember shower, all feeding the bloom pass — no
+          DOM overlay can read as physical light. */
+
+    /* 4. Seam flash: the kindle appears under the flare peak (ADR-0017),
+          then the flare decays. The heavy work — track fetch/decode, DOM —
+          lives behind async boundaries off this tick. */
+    var kindle = document.getElementById("kindle");
+    if (!sealFxShot) {
+      /* the DOM kindle reveals OUT of the receding flood (t+0.35s),
+         never popping on top of the white-out */
+      window.gsap.delayedCall(0.35, function () {
+        if (kindle) kindle.hidden = false;
+        if (T) T.kindleAfterSeal();
+      });
+    } else if (kindle) {
+      kindle.hidden = false;
+    }
+
+    /* 5. Hold the burst beat while the flood settles,
+          then hand to the authored dolly. */
+    window.gsap.delayedCall(1.0, function () {
+      sealPhase = "intro";
+      if (novaPool) novaPool.visible = false;
+      isParked = false;
+      dwellStillMs = 0;
+      startIntro();
+    });
+  }
+
+  window.addEventListener("pointermove", function (ev) {
+    if (sealBroken) return;
+    var over = checkSealHover(ev.clientX, ev.clientY);
+    if (over !== isHoveringSeal) {
+      isHoveringSeal = over;
+      sealHoverTarget = over ? 1 : 0;
+      document.body.classList.toggle("seal-interactive", over);
+    }
+  }, { passive: true });
+
+  function handleSealInteraction(ev) {
+    if (sealBroken) return;
+    /* WHATWG §6.4: touch pointerdown grants no activation — touch breaks
+       the seal on pointerup instead (audio-activation research §1.1). */
+    if (ev.type === "pointerdown" && ev.pointerType !== "mouse") {
+      return;
+    }
+    if (checkSealHover(ev.clientX, ev.clientY)) {
+      ev.preventDefault();
+      breakSeal();
+    }
+  }
+
+  window.addEventListener("pointerdown", handleSealInteraction);
+  window.addEventListener("pointerup", function (ev) {
+    if (ev.pointerType !== "mouse") handleSealInteraction(ev);
+  });
+
+  var sealTriggerBtn = document.getElementById("seal-trigger");
+  if (sealTriggerBtn) {
+    sealTriggerBtn.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      breakSeal();
+    });
+  }
+
   var open = 1;
   function layRoll() {
     var leadZ = TOPZ + TH * open;
@@ -565,7 +1965,7 @@ import * as THREE from "three";
     roll.scale.set(1, s, s);
     lowDowel.position.set(0, 0, 0);
     rollGroup.position.set(0, 0.06 + 0.34 * s, leadZ + 0.12);
-    topDowel.visible = open > 0.02;
+    topDowel.visible = true;
     /* The roll spins as it lays paper: length / radius radians total. */
     roll.rotation.x = open * (TH / 0.34);
     plane.scale.y = Math.max(open, 0.001);
@@ -1146,6 +2546,19 @@ import * as THREE from "three";
       shader.uniforms.uPool2 = { value: pool2Tex };
       shader.uniforms.uF1 = sharedUniforms.uF1;
       shader.uniforms.uF2 = sharedUniforms.uF2;
+      shader.uniforms.uNovaG = novaSharedU.uNovaG;
+      shader.uniforms.uNovaFrontM = novaSharedU.uNovaFrontM;
+      shader.uniforms.uNovaColor = novaSharedU.uNovaColor;
+      shader.uniforms.uNovaXZ = novaSharedU.uNovaXZ;
+
+      shader.vertexShader = shader.vertexShader.replace(
+        "#include <common>",
+        "#include <common>\nvarying vec3 vNovaWP;"
+      );
+      shader.vertexShader = shader.vertexShader.replace(
+        "#include <begin_vertex>",
+        "#include <begin_vertex>\nvNovaWP = (modelMatrix * vec4(transformed, 1.0)).xyz;"
+      );
 
       shader.fragmentShader = shader.fragmentShader.replace(
         /#include\s*<lightmap_pars_fragment>/,
@@ -1154,7 +2567,12 @@ import * as THREE from "three";
           "uniform sampler2D uPool1;",
           "uniform sampler2D uPool2;",
           "uniform float uF1;",
-          "uniform float uF2;"
+          "uniform float uF2;",
+          "uniform float uNovaG;",
+          "uniform float uNovaFrontM;",
+          "uniform vec3 uNovaColor;",
+          "uniform vec2 uNovaXZ;",
+          "varying vec3 vNovaWP;"
         ].join("\n")
       );
 
@@ -1167,7 +2585,20 @@ import * as THREE from "three";
           "reflectedLight.indirectDiffuse += lm * RECIPROCAL_PI;"
         ].join("\n")
       );
+
+      /* the baked surfaces ANSWER the nova: emissive lift gated by the
+         same world-space wavefront that drives the flood */
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <emissivemap_fragment>",
+        [
+          "#include <emissivemap_fragment>",
+          "float novaD = distance(vNovaWP.xz, uNovaXZ);",
+          "float novaHit = smoothstep(uNovaFrontM, uNovaFrontM - 0.9, novaD);",
+          "totalEmissiveRadiance += uNovaColor * uNovaG * novaHit;"
+        ].join("\n")
+      );
     };
+
   }
 
   function patchTableMaterial(mat, pool1Tex, pool2Tex, sharedUniforms) {
@@ -1520,7 +2951,7 @@ import * as THREE from "three";
       lightMapIntensity: 1,
       fog: true
     });
-    patchBakeMaterial(wallMat, wallB1.texture, wallB2.texture, sharedPoolUniforms, "wall-baked-v1");
+    patchBakeMaterial(wallMat, wallB1.texture, wallB2.texture, sharedPoolUniforms, "wall-baked-nova-v2");
     wall.material = wallMat;
     wall.geometry.setAttribute("uv2", wall.geometry.attributes.uv.clone());
   }
@@ -1535,8 +2966,15 @@ import * as THREE from "three";
   ];
   function setBaseVisible(v) {
     for (var i = 0; i < baseMeshes.length; i++) {
-      if (baseMeshes[i]) baseMeshes[i].visible = v;
+      if (!baseMeshes[i]) continue;
+      if (baseMeshes[i] === plane) {
+        baseMeshes[i].visible = v && open > 0.01;
+      } else {
+        baseMeshes[i].visible = v;
+      }
     }
+    if (sealMesh) sealMesh.visible = v && !sealBroken;
+    if (ribbonMesh) ribbonMesh.visible = v && !sealBroken;
   }
 
   var holdTarget = new THREE.WebGLRenderTarget(
@@ -1567,6 +3005,10 @@ import * as THREE from "three";
     flameR.visible = false;
     haloL.visible = false;
     haloR.visible = false;
+    if (sealMesh) sealMesh.visible = false;
+    if (ribbonMesh) ribbonMesh.visible = false;
+    emberPoints.visible = false;
+    sealFxHideForCapture();
     setBaseVisible(true);
 
     var curF1 = sharedPoolUniforms.uF1.value;
@@ -1602,16 +3044,23 @@ import * as THREE from "three";
     flameR.visible = true;
     haloL.visible = true;
     haloR.visible = true;
+    if (sealMesh) sealMesh.visible = !sealBroken;
+    if (ribbonMesh) ribbonMesh.visible = !sealBroken;
+    sealFxRestoreAfterCapture();
   }
 
-  function renderParked(f1, f2) {
+  function renderParked(f1, f2, dt) {
     var fAvg = (f1 + f2) * 0.5;
     holdQuadMat.color.setScalar(1.0 + (fAvg - 1.0) * 0.28);
+    applyQuadKickStep(dt); /* burst recoil, drawn into the frozen frame */
 
     renderer.setRenderTarget(composer.readBuffer);
     renderer.render(holdQuadScene, holdQuadCamera);
 
     setBaseVisible(false);
+    if (sealMesh) sealMesh.visible = !sealBroken;
+    if (ribbonMesh) ribbonMesh.visible = !sealBroken;
+
     var prevBg = scene.background;
     scene.background = null;
     renderer.clearDepth();
@@ -1683,7 +3132,25 @@ import * as THREE from "three";
     haloR.material.opacity = Math.min(0.8, 0.5 * f2);
     sharedPoolUniforms.uF1.value = f1;
     sharedPoolUniforms.uF2.value = f2;
-    camChase(dt);
+    if (!sealBroken && sealMesh) {
+      updateSealPulse(t, dt);
+      if (sealTriggerBtn && !sealTriggerBtn.hidden) {
+        projectSeal();
+        /* Style writes only when the seal actually moves on screen — an
+           identical write still burns a style recalc every frame. */
+        if (Math.abs(sealScreenX - lastTriggerX) > 0.5 ||
+            Math.abs(sealScreenY - lastTriggerY) > 0.5) {
+          lastTriggerX = sealScreenX;
+          lastTriggerY = sealScreenY;
+          sealTriggerBtn.style.left = sealScreenX.toFixed(1) + "px";
+          sealTriggerBtn.style.top = sealScreenY.toFixed(1) + "px";
+        }
+      }
+    }
+    if (!shotFrozen) {
+      camChase(dt);
+      novaUpdate(dt);
+    }
     if (grainPass) {
       var DRIFT = [[0, 0], [-24, 14], [18, -28], [-30, -8], [26, 22]];
       var driftIdx = Math.floor((t % 1.1) / 0.22) % 5;
@@ -1691,10 +3158,18 @@ import * as THREE from "three";
     }
     var maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
     var inDwell = (window.scrollY <= 120) || (maxScroll > 200 && window.scrollY >= maxScroll - 120);
+    /* sealPhase drives the intro choreography (owner, issue-18 rework):
+       pre → approach (cinematic push-in) → wait (parked, seal breathing) →
+       pulling (fast pull-back to wide; the riser's visual twin) → burst
+       (nova flood, full render path) → intro (authored dolly) → done. */
     var moving = (Math.abs(window.scrollY - lastScrollY) > 0.5) ||
                  (Math.abs(opCur - opGoal) > 0.004) ||
                  (lastCamP.distanceToSquared(camera.position) > 0.0001) ||
-                 !introDone || !inDwell;
+                 (emberPoints.visible && sealPhase !== "burst") ||
+                 sealPhase === "approach" || sealPhase === "pulling" ||
+                 sealPhase === "intro" || !inDwell ||
+                 (sealFx.live && sealFx.clock >= 0 && sealFx.clock < 2.8) ||
+                 shotFrozen;
 
     lastScrollY = window.scrollY;
     lastCamP.copy(camera.position);
@@ -1704,7 +3179,13 @@ import * as THREE from "three";
       isParked = false;
     } else {
       dwellStillMs += dt * 1000;
-      if (dwellStillMs >= 250 && !isParked && composer) {
+      /* The burst parks IMMEDIATELY (no 250ms dwell): the pull-back just
+         landed, the desk must recomposite into the hold target before the
+         fracture so the burst renders in the cheap parked path. */
+      if (sealPhase === "burst" && !isParked && composer && live) {
+        captureHoldTarget();
+        isParked = true;
+      } else if (dwellStillMs >= 250 && !isParked && composer) {
         captureHoldTarget();
         isParked = true;
       }
@@ -1714,7 +3195,7 @@ import * as THREE from "three";
     /* The composer owns the frame (bloom + ACES output must never
        silently vanish). */
     if (isParked && composer) {
-      renderParked(f1, f2);
+      renderParked(f1, f2, dt);
     } else {
       if (composer) composer.render();
       else renderer.render(scene, camera);
@@ -1725,6 +3206,13 @@ import * as THREE from "three";
       window.__T3D.isParked = isParked;
     }
   }
+  /* Occlusion-safe frame pump (round 6): a backgrounded host window
+     suspends rAF, killing video capture and gsap. This runs the SAME tick
+     plus gsap's ticker so recording/staging can drive real-time frames. */
+  window.__pumpFrame = function () {
+    if (window.gsap) gsap.ticker.tick(performance.now() / 1000);
+    tick();
+  };
   /* Debug/diagnosis handle (round-6b method): lets a probe flip the two
      GPU cost levers live and read back render times. Kept tiny; the
      per-frame cost is one performance.now() pair only while __T3D is
@@ -1771,6 +3259,12 @@ import * as THREE from "three";
     renderOnce: function () {
       var t0 = performance.now();
       camChase(0.016);
+      /* Frozen shots stage their own exposure (the variant arc at the
+         shot instant); camChase just reset it to the pose grade. */
+      if (shotFrozen && sealFxStagedExposure > 0) {
+        renderer.toneMappingExposure = sealFxStagedExposure;
+      }
+      if (shotFrozen) novaApplyCamera(sealFx.clock, 0);
       if (!this.plain && composer) composer.render();
       else renderer.render(scene, camera);
       return performance.now() - t0;
@@ -1798,6 +3292,7 @@ import * as THREE from "three";
   var columnEl = document.querySelector(".column");
   function syncColumnFade() {
     if (!columnEl) return;
+    if (!introDone) return;
     columnEl.style.opacity = String(Math.max(0, Math.min(1, (0.15 - opCur) / 0.15)));
   }
 
@@ -1823,6 +3318,15 @@ import * as THREE from "three";
        whole-scroll wide (q=1) — both rods in frame (user). */
     valleyT = 1 - q;
     mixPose(PUSH_END, WIDE_END, q);
+  }
+  /* Seal close-up: mixes WIDE -> SEAL_CLOSE (0 = wide desk, 1 = seal fills
+     the frame). The pull uses the same scalar, so an interruption at any
+     point can reverse cleanly from wherever the camera stands. */
+  var sealMix = 0;
+  function setCamSeal(k) {
+    sealMix = k;
+    valleyT = 0.18 * k; /* close-up rides a touch dimmer, still the wide grade */
+    mixPose(WIDE, SEAL_CLOSE, k);
   }
   /* Damped camera: goal (scroll/intro target) vs current (what renders).
      camDirect=true during the intro dolly keeps the authored timing exact;
@@ -1967,7 +3471,6 @@ import * as THREE from "three";
 
   /* ---------- Intro: wide hold, then ONE unbroken dolly; the roll drops
      with a heavy damped settle and unrolls during the move. Click skips. */
-  var T = window.Tapestry || null;
   var introDone = false;
   var topZoneH = zoneTopEl ? zoneTopEl.offsetHeight : window.innerHeight * 1.4;
 
@@ -1993,6 +3496,8 @@ import * as THREE from "three";
        (the sigil cap above it fills the top of frame — the letter opens
        mid-desk), drop the 3D layer, restore scrolling, then tell app.js
        to open the reveal gate so the hero ignition is always seen. */
+    sealPhase = "done";
+    document.documentElement.classList.add("intro-done");
     de.style.scrollBehavior = "auto";
     /* If the zones were torn down mid-intro (context lost), the captured
        zone height is a lie — land relative to 0. */
@@ -2062,11 +3567,8 @@ import * as THREE from "three";
      There is NO skip: the intro plays in full (owner 2026-10-07). */
   open = 0;
   layRoll();
-  /* The roll rests just above the desk during the hold — the drop is a
-     short heavy settle, not a long fall (critic: a 3-unit hover read as
-     a floating prop). Round 5: lower rest (0.75), the drop starts 0.15s
-     into the dolly — visible hover lands at ~1.5s total. */
-  rollGroup.position.y += 0.75;
+  /* The scroll rests flat on the desk table under the wax seal (Issue #18).
+     No airborne drop from the sky; the roll is already present on the desk. */
 
   function startIntro() {
     if (introStarted || introDone) return;
@@ -2074,40 +3576,26 @@ import * as THREE from "three";
     window.__INTRO_STATE = "intro-running";
     holder.style.pointerEvents = "auto"; /* eats clicks only — no skip path */
     introTl = window.gsap.timeline({ onComplete: handoff });
-    /* Wide hold cut 1.9 -> 1.0 (user round 5: total hover ≈1.5s, not 2.3) */
-    introTl.to({}, { duration: 1.0 }); /* wide hold: desk, candles, rolled scroll */
-    /* The single dolly. */
+
+    /* The single continuous camera dolly from WIDE to PUSH. */
     var dolly = { t: 0 };
     introTl.to(dolly, {
-      t: 1, duration: 3.6, ease: "power2.inOut",
+      t: 1, duration: 3.4, ease: "power2.inOut",
       onUpdate: function () { setCam(dolly.t); }
     });
-    /* The settle lands during the move: short heavy drop, thud, damped
-       rebound. No bounce.out anywhere (ADR-0007/0009). */
-    introTl.to(rollGroup.position, {
-      y: 0.4, duration: 0.38, ease: "power3.in",
-      onStart: function () { if (T) T.unroll(2.4); },
+
+    /* The unroll moves forward across the desk table. */
+    introTl.to({ v: 0 }, {
+      v: 1, duration: 2.2, ease: "power2.out",
+      onStart: function () { if (T) T.unroll(2.2); },
+      onUpdate: function () { open = this.targets()[0].v; layRoll(); },
       onComplete: function () {
         if (T) T.thud();
         window.gsap.to(rollGroup.position, {
-          y: 0.33, duration: 0.14, ease: "power1.out", yoyo: true, repeat: 1
-        });
-        window.gsap.to(rollGroup.rotation, {
-          z: 0.016, duration: 0.18, ease: "power1.out", yoyo: true, repeat: 3
+          y: 0.38, duration: 0.12, ease: "power1.out", yoyo: true, repeat: 1
         });
       }
-    }, "<0.15");
-    /* The unroll rides the same move. Easing is deliberate: power1.inOut
-       had near-zero velocity for its first ~0.5s — the sheet appeared to
-       STICK at the start of the unwrap, then catch up (user recording,
-       round 5c). power2.out leaves immediately and settles gently — a
-       scroll pays out fast and eases as it reaches full length. Round 6:
-       2.6 -> 2.2 — the decel tail read as the intro "hanging" (the sheet
-       sat motionless for ~a second before the handoff). */
-    introTl.to({ v: 0 }, {
-      v: 1, duration: 2.2, ease: "power2.out",
-      onUpdate: function () { open = this.targets()[0].v; layRoll(); }
-    }, "<0.45");
+    }, "<0.1");
     introTl.to({}, { duration: 0.12 });
   }
   var introStarted = false;
@@ -2138,6 +3626,8 @@ import * as THREE from "three";
        the hidden sheet parts so their programs and the sheet texture
        upload behind the loader, not on the unroll's first frame. */
     warmHidden(true);
+    /* The nova FX objects (shells, pool, smoke) compiled at module init via
+       their own warm pass; the ember Points compile here with the rest. */
     try { renderer.compile(scene, camera); } catch (e) {}
     /* Six real frames when frames flow; BOUNDED when they don't — an
        occluded/background tab suspends rAF, and the loader must never
@@ -2152,8 +3642,9 @@ import * as THREE from "three";
         if (composerReady || waits++ > 15) {
           window.__TAPESTRY_3D_READY = true;
           try { window.dispatchEvent(new CustomEvent("tapestry:3d-ready")); } catch (e) {}
-          /* The loader fade gets its beat, then the wide hold starts. */
-          setTimeout(startIntro, 700);
+          /* Ready: the loader dissolves over the first beat of the
+             cinematic approach — the desk pushes in toward the seal. */
+          startSealApproach();
           return;
         }
         setTimeout(awaitComposer, 166);
@@ -2179,6 +3670,9 @@ import * as THREE from "three";
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
     if (composer) composer.setSize(window.innerWidth, window.innerHeight);
+    if (bloomPass) bloomPass.setSize(
+      Math.max(2, Math.round(window.innerWidth * 0.5)),
+      Math.max(2, Math.round(window.innerHeight * 0.5)));
     isParked = false;
     dwellStillMs = 0;
     if (holdTarget) {
@@ -2189,6 +3683,13 @@ import * as THREE from "three";
     }
     topZoneH = zoneTopEl ? zoneTopEl.offsetHeight : window.innerHeight * 1.4;
   });
+
+  window.TapestryScene = {
+    breakSeal: breakSeal,
+    checkSealHover: checkSealHover,
+    isSealBroken: function () { return sealBroken; },
+    sealMesh: sealMesh
+  };
 
   /* Flag only after a full boot: app.js's failsafe keys off it to drop
      dead zones and re-measure triggers when the scene never came up. */
