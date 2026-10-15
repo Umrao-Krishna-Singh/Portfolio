@@ -180,7 +180,7 @@ html.no-3d .desk-zone { display: none; }
 #grain {
   position: fixed; inset: -60px; z-index: 35; pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
-  opacity: 0.11; mix-blend-mode: overlay;
+  opacity: 0.05; mix-blend-mode: normal;
   animation: grain-shift 1.1s steps(1) infinite;
 }
 @keyframes grain-shift {
@@ -342,16 +342,27 @@ html:not(.intro-done):not(.no-3d) .column {
   min-height: 100svh; padding: 56px 0; position: relative;
   display: flex; flex-direction: column; justify-content: center;
   scroll-snap-align: start;
-  /* Panel light-up (user round 5 #4/A3): the parchment card "catches the
-     candlelight" a beat after landing — a soft warm inner glow that
-     rises once (added .lit by the settle flush in app.js) and stays.
-     Kept faint: it should read as light arriving, not an effect. */
-  transition: box-shadow 900ms ease;
+  transform: translateZ(0);
+  will-change: transform;
 }
-.pull.lit {
-  box-shadow:
-    inset 0 26px 60px -18px rgba(255, 176, 96, 0.14),
-    inset 0 -18px 70px -20px rgba(255, 150, 60, 0.08);
+/* Panel light-up (ADR-0018): pre-positioned soft candlelight wash on
+   pseudo-element with opacity transition instead of live 70px blur box-shadow */
+.pull::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: linear-gradient(180deg,
+    rgba(255, 176, 96, 0.14) 0%,
+    transparent 60px,
+    transparent calc(100% - 70px),
+    rgba(255, 150, 60, 0.08) 100%);
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+.pull.lit::after {
+  opacity: 1;
 }
 /* Hero keeps one full screen so the scroll cue sits at its foot. */
 #hero { display: flex; flex-direction: column; justify-content: center; }
@@ -468,16 +479,14 @@ html.no-gsap .runes li, .runes.rearm li { animation: none; }
   display: inline-block;
   opacity: 0;
   transform: translateY(0.32em);
-  filter: blur(4px);
   color: #FFF6DC;
-  text-shadow: 0 0 18px rgba(255, 179, 71, 0.95), 0 0 4px rgba(255, 246, 220, 0.9),
-    0 0 34px rgba(255, 154, 42, 0.55);
-  transition: opacity 120ms ease, transform 170ms ease, filter 300ms ease,
+  text-shadow: 0 0 6px rgba(255, 179, 71, 0.95), 0 0 2px rgba(255, 246, 220, 0.9);
+  transition: opacity 120ms ease, transform 170ms ease,
     color 400ms ease, text-shadow 400ms ease;
   will-change: opacity, transform;
 }
 .ember-reveal.ignited .ch {
-  opacity: 1; transform: none; filter: blur(0.5px);
+  opacity: 1; transform: none;
   color: inherit; text-shadow: none;
 }
 .ember-reveal.cooled .ch { will-change: auto; }
@@ -501,20 +510,20 @@ html.no-gsap .runes li, .runes.rearm li { animation: none; }
 }
 .ink-reveal .char-line {
   position: absolute; left: -2%; right: -2%; height: 30px; top: 0;
+  transform: translateZ(0);
   will-change: transform;
   pointer-events: none; z-index: 2; mix-blend-mode: screen;
   background-image:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='60'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012 0.3' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='60' filter='url(%23c)'/%3E%3C/svg%3E"),
     linear-gradient(180deg,
       rgba(255, 154, 42, 0) 0%,
-      rgba(255, 154, 42, 0.75) 35%,
+      rgba(255, 120, 20, 0.75) 24%,
       rgba(255, 246, 220, 0.95) 62%,
       rgba(255, 120, 20, 0.8) 78%,
       rgba(255, 154, 42, 0) 100%);
   background-size: 300px 100%, 100% 100%;
   background-blend-mode: multiply;
-  filter: blur(1px) saturate(1.3);
-  box-shadow: 0 0 26px 8px rgba(255, 154, 42, 0.5);
+  box-shadow: 0 0 12px 2px rgba(255, 154, 42, 0.6);
   animation: charline-wobble 0.32s ease-in-out infinite alternate;
 }
 @keyframes charline-wobble {
@@ -523,6 +532,8 @@ html.no-gsap .runes li, .runes.rearm li { animation: none; }
 }
 .ink-reveal .burn-frame {
   position: absolute; inset: -6px; pointer-events: none; z-index: 2;
+  transform: translateZ(0);
+  will-change: opacity;
   border: 2px solid rgba(255, 179, 71, 0.95);
   box-shadow: 0 0 18px rgba(255, 154, 42, 0.8), inset 0 0 14px rgba(255, 154, 42, 0.5);
   opacity: 0;
@@ -563,10 +574,12 @@ html.no-gsap .runes li, .runes.rearm li { animation: none; }
 /* ---------- Ember particles: rising sparks on every reveal ---------- */
 #embers {
   position: fixed; inset: 0; z-index: 25; pointer-events: none;
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 /* ---------- About + contact side-by-side ---------- */
-.about-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; }
+.about-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; transform: translateZ(0); }
 /* Let the final pull breathe instead of dying at 60% height. */
 #about-contact { padding-bottom: 90px; }
 .bio p { font-size: 18px; line-height: 1.6; }
