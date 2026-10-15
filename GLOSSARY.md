@@ -5,7 +5,7 @@ The single-scroll medieval-fantasy portfolio of Umrao Krishna Singh. One page, o
 ## Structure
 
 **Tapestry**:
-The full page. One continuous scroll from hero to seal.
+The full page. One continuous scroll from hero to send seal.
 _Avoid_: page, site, document
 
 **Pull**:
@@ -29,7 +29,7 @@ The scribe's bio pull with the three ways of working. Side-by-side with Contact 
 _Avoid_: bio section (as a name), profile
 
 **Contact**:
-The raven-message pull. Email field plus message field only, closed by the seal.
+The raven-message pull. Email field plus message field only, closed by the send seal.
 _Avoid_: form, contact form, footer
 
 ## Reading aids
@@ -57,12 +57,24 @@ _Avoid_: description, summary, results
 ## Interaction
 
 **Kindle**:
-The floating sound toggle. A pulsating muted-speaker that kindles the background drone, and only that.
+The floating ember toggle that controls background music playback.
 _Avoid_: audio button, mute button, speaker icon
 
-**Seal**:
-The wax-seal send control. Hollow ring, pressed to send the raven-message.
-_Avoid_: submit button, send button, CTA
+**Arcane wax seal**:
+The blood-orange wax seal binding the rolled tapestry on the scholar's desk, broken to begin the journey.
+_Avoid_: start button, gate, enter button, intro button
+
+**Seal crack**:
+The brittle physical fracture sound produced when breaking the arcane wax seal.
+_Avoid_: click sound, button audio, SFX
+
+**Signet cursor**:
+The brass signet hand with ring that serves as the desktop pointer, stamping down upon interaction.
+_Avoid_: mouse pointer, custom cursor, hand icon
+
+**Send seal**:
+The wax-seal control at the foot of the tapestry, pressed to send the raven-message.
+_Avoid_: submit button, send button, CTA, seal (unqualified)
 
 **Ember reveal**:
 Text arriving as a glowing fiery edge (~400ms) that cools into permanent ink.
