@@ -1,0 +1,100 @@
+/* =========================================================================
+   ADR-0018 Diagnostic Harness Reference Stylesheet
+   Companion to docs/adr/0018-zero-regression-compositor-optimization-and-diagnostic-harness.md
+   
+   These are the exact non-destructive CSS rules used by harness.js to benchmark
+   and isolate compositor, raster, and blend mode performance bottlenecks.
+   ========================================================================= */
+
+/* --- 1. High-Performance Solidified Production Rules --- */
+
+/* Layer Promotion: Prevents document-wide 7,000px CPU repaint on reveal/scroll */
+.pull {
+  transform: translateZ(0);
+  will-change: transform;
+}
+#embers {
+  transform: translateZ(0);
+  will-change: transform;
+}
+.about-grid {
+  transform: translateZ(0);
+}
+
+/* Skia Raster Optimization: Eliminates CPU Gaussian blur convolution across
+   180+ inline-block glyphs; preserves rich incandescent candlelight glow */
+.ember-reveal .ch {
+  filter: none !important;
+  text-shadow: 0 0 6px rgba(255, 179, 71, 0.95), 0 0 2px rgba(255, 246, 220, 0.9) !important;
+}
+.ember-reveal.ignited .ch {
+  filter: none !important;
+  text-shadow: none !important;
+}
+
+/* Accelerated Burning Filament: Replaces software filter blur with GPU box-shadow
+   and isolates filament on its own compositor layer to prevent framebuffer readbacks */
+.ink-reveal .char-line {
+  transform: translateZ(0);
+  will-change: transform;
+  filter: none !important;
+  box-shadow: 0 0 12px 2px rgba(255, 154, 42, 0.6) !important;
+}
+.ink-reveal .burn-frame {
+  transform: translateZ(0);
+  will-change: opacity;
+}
+
+/* Accelerated Parchment Card Lighting: Pre-rendered gradient on pseudo-element
+   transitioning GPU opacity instead of live 70px blur box-shadow rasterization */
+.pull::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: linear-gradient(180deg,
+    rgba(255, 176, 96, 0.14) 0%,
+    transparent 60px,
+    transparent calc(100% - 70px),
+    rgba(255, 150, 60, 0.08) 100%);
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+.pull.lit::after {
+  opacity: 1;
+}
+.pull.lit {
+  box-shadow: none !important;
+}
+
+/* Film Grain Tuning: Eliminates continuous GPU full-screen blend recalculation */
+#grain {
+  mix-blend-mode: normal !important;
+  opacity: 0.05 !important;
+}
+
+
+/* --- 2. Baseline Diagnostic Rules (For Comparative Re-Testing) ---
+   To test under unoptimized baseline conditions, apply these rules:
+*/
+/*
+.ember-reveal .ch {
+  filter: blur(4px) !important;
+  text-shadow: 0 0 18px rgba(255, 179, 71, 0.95), 0 0 4px rgba(255, 246, 220, 0.9), 0 0 34px rgba(255, 154, 42, 0.55) !important;
+}
+.ember-reveal.ignited .ch {
+  filter: blur(0.5px) !important;
+}
+.ink-reveal .char-line {
+  filter: blur(1px) saturate(1.3) !important;
+  box-shadow: 0 0 26px 8px rgba(255, 154, 42, 0.5) !important;
+}
+.pull.lit {
+  box-shadow: inset 0 26px 60px -18px rgba(255, 176, 96, 0.14), inset 0 -18px 70px -20px rgba(255, 150, 60, 0.08) !important;
+}
+#grain {
+  mix-blend-mode: overlay !important;
+  opacity: 0.11 !important;
+}
+*/

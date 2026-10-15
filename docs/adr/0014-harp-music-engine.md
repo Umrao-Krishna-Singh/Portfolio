@@ -13,3 +13,7 @@ User verdict (round 6 recording session): "The music is much better this time an
 ## Update (2026-10-05, round 6: phrase dynamics and cadence ritardando)
 
 First iteration on the accepted baseline, deliberately conservative — the pitches, form, lilt and organum are untouched. Two performance-practice layers: (1) a per-phrase dynamic contour (A 0.85×, A′ 0.9×, B 1.12×, cadence 0.9×) so the form arches instead of sitting at one loudness; (2) the cadence phrase slows ~18% (long/short durations ×1.18) — a ritardando into the close, which medieval performance does and a metronomic loop does not. Both are single-point changes in the step loop, trivially revertible if the ear disagrees.
+
+## Update (2026-10-15, Issue #18: The Bard's Tale master gain re-staging)
+
+To balance the background harp and flute recording (*The Bard's Tale*) against ambient candle breathing and procedural interaction sounds, master track gain is reduced by 20% from 0.85 to 0.68 with a 1.6s smooth exponential fade-in upon breaking the arcane wax seal (ADR-0017, ADR-0020).
