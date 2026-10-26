@@ -1597,12 +1597,42 @@
   setTimeout(hardDeadline, 25000);
 
 
-  /* Raven form: thud on seal press; real send is #8 (blocked by #7). */
-  document.getElementById("raven-form").addEventListener("submit", function (ev) {
+  /* Raven form (Issue #7): hollow seal marker; submit plays the stamp —
+     thud on press, wax floods the ring, the initial embosses — then the
+     seal holds sealed and the note surfaces. Real send is #8 (no backend). */
+  var ravenForm = document.getElementById("raven-form");
+  var sealBtn = ravenForm.querySelector(".seal");
+  var sealLabel = sealBtn.querySelector(".seal-label");
+  var formNote = document.getElementById("form-note");
+  var SEAL_SETTLE_MS = 650; /* press -> squish -> emboss -> rest; must match
+                               the seal-stamp beat in styles.css */
+  function setSealed(on) {
+    sealBtn.classList.toggle("sealed", on);
+    sealBtn.disabled = on;
+    sealLabel.textContent = on ? "Sealed \u2713" : "Send Message";
+    formNote.hidden = !on;
+  }
+  ravenForm.addEventListener("submit", function (ev) {
     ev.preventDefault();
-    engine.unlock();
+    engine.unlock(); /* resume in the gesture tick (WebKit requirement) */
+    if (sealBtn.classList.contains("stamping") || sealBtn.classList.contains("sealed")) return;
+    /* The thud rides the press on both paths — reduced motion gates the
+       animation, never the sound. */
     if (soundOn()) engine.thud();
-    document.getElementById("form-note").hidden = false;
+    if (reduced) { /* no stamp motion: land the sealed state at once */
+      setSealed(true);
+      return;
+    }
+    sealBtn.classList.add("stamping");
+    sparkAt(sealBtn, 10);
+    setTimeout(function () {
+      sealBtn.classList.remove("stamping");
+      setSealed(true);
+    }, SEAL_SETTLE_MS);
+  });
+  /* Any edit after a send re-arms the seal so the letter can be re-sealed. */
+  ravenForm.addEventListener("input", function () {
+    if (sealBtn.classList.contains("sealed")) setSealed(false);
   });
 
   /* Bridge for the 3D scene module (scene.js): sound on gestures only.

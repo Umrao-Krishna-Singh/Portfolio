@@ -680,31 +680,72 @@ html.no-gsap .runes li, .runes.rearm li { animation: none; }
 }
 .contact textarea { resize: none; }
 
-/* Wax seal: a real pressed seal — filled disc, embossed initial. */
+/* Wax seal (Issue #7): idle = hollow ring marking where the seal will
+   land (breathing ember glow as the affordance); submit = stamp beat
+   (press, wax floods the ring, initial embosses); sealed = the pressed
+   disc holds. Real send is #8 (no backend yet). */
 .seal {
   display: flex; align-items: center; gap: 14px;
   background: none; border: none; cursor: pointer; padding: 6px 0;
   font-family: var(--font-body); color: var(--ink); font-size: 17px;
 }
+.seal:disabled { cursor: default; }
 .seal-ring {
   position: relative;
   width: 64px; height: 64px; border-radius: 50%;
+  /* Hollow: the pressed guide ring only, wax not yet landed. */
+  border: 2px solid rgba(42, 26, 14, 0.7);
+  box-shadow: inset 0 0 0 1px rgba(42, 26, 14, 0.25);
+  animation: seal-breathe 2.8s ease-in-out infinite;
+  transition: box-shadow 400ms ease, transform 400ms ease; /* 400ms fire token */
+}
+/* The wax itself: hidden at idle, floods the ring across the stamp. */
+.seal-ring::before {
+  content: "";
+  position: absolute; inset: 0; border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #a03024, #7a1f14 48%, #4a100a);
   box-shadow:
     inset 0 2px 4px rgba(255, 200, 170, 0.35),
     inset 0 -3px 6px rgba(20, 4, 2, 0.6),
     0 2px 6px rgba(10, 4, 2, 0.4);
-  transition: box-shadow 400ms ease, transform 400ms ease; /* 400ms fire token */
+  transform: scale(0);
+  /* Wax floods fast — a material snap, deliberately under the 400ms
+     fire token. */
+  transition: transform 260ms cubic-bezier(0.3, 1.4, 0.5, 1);
 }
 .seal-ring::after {
   content: "U";
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
   font-family: var(--font-display); font-size: 24px; font-weight: 700;
-  color: rgba(255, 214, 180, 0.55);
+  color: rgba(42, 26, 14, 0.3); /* ghosted guide while hollow */
+  transition: color 400ms ease, text-shadow 400ms ease;
+}
+.seal:not(:disabled):hover .seal-ring {
+  box-shadow: inset 0 0 0 1px rgba(42, 26, 14, 0.25), 0 0 14px var(--ember);
+  transform: scale(1.04);
+}
+/* Stamp beat: press (wax meets parchment), squish (wax floods outward,
+   ember flare), rest. Runs once; .sealed takes over as it ends. The 650ms
+   matches SEAL_SETTLE_MS in app.js. */
+.seal.stamping .seal-ring { animation: seal-stamp 650ms cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+.seal.stamping .seal-ring::before { transform: scale(1.04); }
+.seal.sealed .seal-ring { animation: none; }
+.seal.sealed .seal-ring::before { transform: scale(1); }
+.seal.sealed .seal-ring::after {
+  color: rgba(255, 214, 180, 0.55); /* embossed into the set wax */
   text-shadow: 0 -1px 1px rgba(20, 4, 2, 0.8), 0 1px 1px rgba(255, 200, 170, 0.25);
 }
-.seal:hover .seal-ring { box-shadow: 0 0 14px var(--ember); transform: scale(1.04); }
+@keyframes seal-breathe {
+  0%, 100% { filter: drop-shadow(0 0 0 rgba(255, 154, 42, 0)); }
+  50% { filter: drop-shadow(0 0 6px rgba(255, 154, 42, 0.5)); }
+}
+@keyframes seal-stamp {
+  0% { transform: scale(1); }
+  30% { transform: scale(0.9); }
+  60% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
 .seal-label { letter-spacing: 1px; }
 .form-note { font-size: 16px; font-style: italic; }
 
@@ -761,4 +802,9 @@ html.no-3d { scroll-snap-type: y proximity; }
   #loader { transition: none; }
   .cap-sigil circle, .cap-sigil path { stroke-dashoffset: 0; transition: none; }
   .cap-sigil text { opacity: 1; transition: none; }
+  /* Seal (Issue #7): no pulse/stamp motion; classes still land, so the
+     wax fill and emboss arrive as an instant state change. */
+  .seal .seal-ring, .seal.stamping .seal-ring { animation: none; }
+  .seal-ring::before { transition: none; }
+  .seal:hover .seal-ring { transform: none; }
 }

@@ -110,17 +110,20 @@
           <p class="eyebrow ember-reveal">Contact &middot; placeholder</p>
           <h2 class="quest-title ember-reveal">Send a raven</h2>
           <form id="raven-form" class="ink-reveal">
+            <label>Your name
+              <input type="text" name="name" required placeholder="Placeholder name&hellip;" autocomplete="name">
+            </label>
             <label>Your email
               <input type="email" name="email" required placeholder="you@example.com" autocomplete="email">
             </label>
             <label>Message
               <textarea name="message" required rows="5" placeholder="Placeholder message&hellip;"></textarea>
             </label>
-            <button type="submit" class="seal" aria-label="Press to send">
-              <span class="seal-ring"></span>
-              <span class="seal-label">press to send</span>
+            <button type="submit" class="seal">
+              <span class="seal-ring" aria-hidden="true"></span>
+              <span class="seal-label">Send Message</span>
             </button>
-            <p class="form-note" id="form-note" hidden>Sealed &#10003; (prototype &mdash; no backend yet, see #8)</p>
+            <p class="form-note" id="form-note" role="status" hidden>Sealed &#10003; (prototype &mdash; no backend yet, see #8)</p>
           </form>
         </article>
       </div>

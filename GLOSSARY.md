@@ -29,7 +29,7 @@ The scribe's bio pull with the three ways of working. Side-by-side with Contact 
 _Avoid_: bio section (as a name), profile
 
 **Contact**:
-The raven-message pull. Email field plus message field only, closed by the send seal.
+The raven-message pull. Name, email and message fields, closed by the send seal.
 _Avoid_: form, contact form, footer
 
 ## Reading aids
