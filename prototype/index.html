@@ -191,8 +191,10 @@
 <div id="vignette" aria-hidden="true"></div>
 <div id="grain" aria-hidden="true"></div>
 <div id="seam-flash" aria-hidden="true"></div>
-<!-- Accessible keyboard / screen-reader trigger for breaking the wax seal -->
-<button id="seal-trigger" class="seal-accessible-btn" aria-label="Break wax seal and unroll tapestry" tabindex="0">
+<!-- Accessible keyboard / screen-reader trigger for breaking the wax seal.
+     Hidden until the camera rests on the close-up (issue #25) — scene.js
+     reveals it when sealPhase becomes "wait". -->
+<button id="seal-trigger" class="seal-accessible-btn" aria-label="Break wax seal and unroll tapestry" tabindex="0" hidden>
   <span class="sr-only">Break wax seal and unroll tapestry</span>
 </button>
 

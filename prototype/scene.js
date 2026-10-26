@@ -1146,7 +1146,10 @@ window.THREE = THREE;
   }
 
   function checkSealHover(clientX, clientY) {
-    if (sealBroken || !sealMesh || !camera) return false;
+    /* Interactive only at the rest position: during the approach the seal
+       reads as clickable, but an early break leaves the push tween alive
+       next to the pull-back and the camera thrashes between them (#25). */
+    if (sealBroken || sealPhase !== "wait" || !sealMesh || !camera) return false;
     projectSeal();
     var dx = clientX - sealScreenX;
     var dy = clientY - sealScreenY;
@@ -1821,16 +1824,21 @@ window.THREE = THREE;
 
   /* Cinematic approach (owner, issue-18 rework): after the loader dissolves     the camera pushes in from the wide desk to the seal's close-up — the
      stamped OPEN and the ember pulse are the whole show until the break. */
+  var sealApproachTween = null;
   function startSealApproach() {
     if (sealFxShot) { sealFxStageShot(sealFxShot); return; }
     if (dead || sealBroken || sealPhase !== "pre") return;
     sealPhase = "approach";
     var push = { k: 0 };
-    window.gsap.to(push, {
+    sealApproachTween = window.gsap.to(push, {
       k: 1, duration: 1.9, ease: "power2.inOut",
       onUpdate: function () { setCamSeal(push.k); },
       onComplete: function () {
+        sealApproachTween = null;
         sealPhase = "wait";
+        /* The accessible trigger ships hidden and is revealed only now —
+           focus and Enter must not reach breakSeal mid-approach either. */
+        if (sealTriggerBtn) sealTriggerBtn.hidden = false;
         if (sealFxAutobreak > 0) {
           window.gsap.delayedCall(sealFxAutobreak, function () { breakSeal(); });
         }
@@ -1840,6 +1848,11 @@ window.THREE = THREE;
 
   function breakSeal() {
     if (sealBroken) return;
+    /* The UI is gated to "wait", but a programmatic early break (console,
+       TapestryScene API) must still not leave the push tween writing
+       setCamSeal opposite the pull-back — kill it and reverse cleanly from
+       wherever the camera stands (breakSealGo starts at sealMix). */
+    if (sealApproachTween) { sealApproachTween.kill(); sealApproachTween = null; }
     sealBroken = true;
     sealPhase = "pulling";
     holder.style.pointerEvents = "auto"; /* stray clicks die here until handoff */
@@ -1937,7 +1950,7 @@ window.THREE = THREE;
   }, { passive: true });
 
   function handleSealInteraction(ev) {
-    if (sealBroken) return;
+    if (sealBroken || sealPhase !== "wait") return;
     /* WHATWG §6.4: touch pointerdown grants no activation — touch breaks
        the seal on pointerup instead (audio-activation research §1.1). */
     if (ev.type === "pointerdown" && ev.pointerType !== "mouse") {
@@ -1958,6 +1971,9 @@ window.THREE = THREE;
   if (sealTriggerBtn) {
     sealTriggerBtn.addEventListener("click", function (ev) {
       ev.preventDefault();
+      /* Same wait-phase gate as the pointer path — the button is hidden
+         until rest, but a stray programmatic .click() must not bypass it. */
+      if (sealBroken || sealPhase !== "wait") return;
       breakSeal();
     });
   }
